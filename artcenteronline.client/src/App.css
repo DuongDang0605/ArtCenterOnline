@@ -1,0 +1,126 @@
+﻿/* App.css — Minimal cho AdminLTE + React */
+
+/* Full height/width cho root; KHÔNG đụng .content-wrapper */
+html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0; /* <-- OK cho body/root */
+    padding: 0;
+}
+
+/* Bỏ boxed của Vite */
+#root {
+    max-width: none;
+    text-align: inherit;
+}
+
+/* KHÔNG đặt margin cho .wrapper /.content-wrapper /.main-header /.main-footer */
+/* Nếu trước đây bạn có: 
+   .wrapper, .content-wrapper, .main-header, .main-footer { margin: 0; padding: 0; }
+   → Hãy xóa hoàn toàn các dòng này.
+*/
+
+/* (Tuỳ chọn) giữ bảng luôn full bề ngang */
+table.dataTable {
+    width: 100% !important;
+}
+/* Giữ footer nằm cuối màn hình, không bị hụt */
+.content-wrapper {
+    min-height: calc(100vh - 101px); /* 50px header + 1px border + 50px footer */
+}
+
+/* Không “đóng đinh” footer; để AdminLTE tự bố trí */
+.main-footer {
+    position: static;
+}
+/* ====== Auth / Login beauty ====== */
+.login-bg {
+    min-height: 100vh;
+    /* Nền gradient mềm, vẫn hài hoà AdminLTE */
+    background: radial-gradient(1200px circle at 10% 10%, #e8f0ff 0%, transparent 40%), radial-gradient(900px circle at 90% 20%, #f7e9ff 0%, transparent 35%), linear-gradient(135deg, #f7faff 0%, #ffffff 100%);
+}
+
+.aco-login-box {
+    width: 440px;
+    max-width: 92vw;
+}
+
+.aco-login-card {
+    border: 0;
+    border-radius: 1rem; /* Bo góc lớn như modern UI */
+    overflow: hidden;
+    backdrop-filter: saturate(1.2);
+}
+
+.aco-brand {
+    font-size: 1.35rem;
+    letter-spacing: 0.2px;
+}
+
+.aco-subtitle {
+    font-size: 0.95rem;
+    margin-top: 6px;
+}
+
+.aco-alert {
+    border-radius: 0.75rem;
+}
+
+.aco-input .form-control {
+    border-left: 0;
+}
+
+.aco-input .input-group-text,
+.aco-input .form-control,
+.aco-input .btn {
+    border-radius: 0.75rem;
+}
+
+.aco-input .input-group-text {
+    background: #f7f8fa;
+    border-right: 0;
+}
+
+.aco-input .form-control:focus {
+    box-shadow: 0 0 0 .2rem rgba(13,110,253,.15); /* xanh primary nhẹ */
+    border-color: #86b7fe;
+}
+
+.aco-btn {
+    border-radius: 0.75rem;
+    font-weight: 600;
+    letter-spacing: .2px;
+}
+
+.aco-footnote {
+    font-size: .875rem;
+}
+
+/* Tối ưu cho dark mode tổng thể (nếu dùng) */
+@media (prefers-color-scheme: dark) {
+    .login-bg {
+        background: radial-gradient(1200px circle at 10% 10%, #243b55 0%, transparent 40%), radial-gradient(900px circle at 90% 20%, #3b1c5a 0%, transparent 35%), linear-gradient(135deg, #1c1f2a 0%, #11131a 100%);
+    }
+
+    .aco-login-card {
+        background: #1e2230;
+        color: #e8ecf1;
+    }
+
+    .aco-input .input-group-text {
+        background: #252a3a;
+        color: #aeb7c6;
+    }
+
+    .aco-input .form-control {
+        background: #1b1f2c;
+        color: #e8ecf1;
+        border-color: #32384b;
+    }
+
+        .aco-input .form-control::placeholder {
+            color: #98a1b2;
+        }
+}
+
+

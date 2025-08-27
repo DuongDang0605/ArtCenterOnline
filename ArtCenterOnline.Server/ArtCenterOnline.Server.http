@@ -1,0 +1,6 @@
+@ArtCenterOnline.Server_HostAddress = http://localhost:5159
+
+GET {{ArtCenterOnline.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

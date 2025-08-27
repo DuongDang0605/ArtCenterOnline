@@ -1,0 +1,182 @@
+﻿/* Trang nền: gradient + pattern nhẹ */
+.aco-login-bg {
+    min-height: 100vh;
+    background: radial-gradient(20rem 20rem at 10% 15%, rgba(255, 255, 255, 0.10), transparent 60%), radial-gradient(24rem 24rem at 90% 10%, rgba(255, 255, 255, 0.06), transparent 60%), radial-gradient(20rem 20rem at 20% 80%, rgba(255, 255, 255, 0.08), transparent 60%), linear-gradient(135deg, #6a8dff 0%, #8a6eff 35%, #b06cff 70%, #ff85a2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 12px;
+}
+
+/* Khung chính */
+.aco-login-box {
+    width: 100%;
+    max-width: 420px;
+    animation: pop-in 380ms ease-out both;
+}
+
+@keyframes pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Logo */
+.aco-login-logo {
+    margin-bottom: 12px;
+}
+
+.aco-brand-icon {
+    display: inline-flex;
+    width: 42px;
+    height: 42px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.32);
+    color: #3b2c8f;
+    margin-right: 10px;
+    backdrop-filter: blur(6px);
+}
+
+.aco-brand-text {
+    color: #ffffff;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.18);
+}
+
+/* Card body */
+.aco-card {
+    border-radius: 14px !important;
+    border: none !important;
+    padding: 22px 22px 18px;
+    background: #ffffff;
+    box-shadow: 0 10px 18px rgba(23, 16, 83, 0.18), 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.aco-subtitle {
+    color: #6b7280;
+    margin-bottom: 16px;
+    font-weight: 500;
+}
+
+/* Alert lỗi */
+.aco-alert {
+    border: none;
+    border-radius: 10px;
+    background: #fdecea;
+    color: #b42318;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.aco-alert-icon {
+    margin-right: 6px;
+}
+
+/* Field + feedback icon */
+.aco-field {
+    position: relative;
+    margin-bottom: 14px;
+}
+
+.aco-input {
+    border-radius: 10px !important;
+    border: 1px solid #e5e7eb;
+    height: 42px;
+    padding-left: 40px;
+    transition: box-shadow 160ms ease, border-color 160ms ease, background-color 160ms ease;
+    background-color: #ffffff;
+}
+
+    .aco-input:focus {
+        border-color: #7c3aed;
+        box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.12);
+        outline: none;
+        background-color: #fff;
+    }
+
+.aco-feedback {
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+/* Remember + row layout */
+.aco-row {
+    margin-top: 6px;
+    align-items: center;
+}
+
+.aco-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #4b5563;
+    font-weight: 500;
+    user-select: none;
+}
+
+    .aco-checkbox input {
+        transform: translateY(1px);
+    }
+
+/* Button */
+.aco-btn {
+    height: 42px;
+    border-radius: 10px !important;
+    border: none !important;
+    background-image: linear-gradient(135deg, #7c3aed 0%, #4f46e5 60%, #2563eb 100%);
+    box-shadow: 0 6px 14px rgba(79, 70, 229, 0.35);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+    .aco-btn:hover,
+    .aco-btn:focus {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 18px rgba(79, 70, 229, 0.42);
+        filter: brightness(1.02);
+    }
+
+    .aco-btn:active {
+        transform: translateY(0);
+        box-shadow: 0 6px 14px rgba(79, 70, 229, 0.35);
+    }
+
+    .aco-btn:disabled {
+        filter: grayscale(0.2) brightness(0.95);
+        cursor: not-allowed;
+        box-shadow: none;
+    }
+
+.aco-btn-icon {
+    margin-right: 8px;
+}
+
+/* Footnote */
+.aco-footnote {
+    text-align: center;
+    margin: 14px 0 0;
+    color: #9aa0a6;
+    font-size: 12.5px;
+}
+
+/* Dark mode tự động (nếu trình duyệt/OS bật) */
+@media (prefers-color-scheme: dark) {
+    .aco-login-bg {
+        background: radial-gradient(24rem 24rem at 10% 10%, rgba(255,255,255,0.06), transparent 60%), radial-gradient(22rem 22rem at 90% 20%, rgba(255,255,255,0.04), transparent 60%), linear-gradient(135deg, #0f172a 0%, #111827 40%, #0b1022 100%);
+    }
+
+    .aco-card {
+        background: #0f1324;
