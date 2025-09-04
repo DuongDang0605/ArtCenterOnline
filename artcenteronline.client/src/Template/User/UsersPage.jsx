@@ -79,10 +79,10 @@ export default function UsersPage() {
     return (
         <>
             <section className="content-header">
-                <h1>Users Tables</h1>
+                <h1>Bảng thông tin tài khoản</h1>
                 <ol className="breadcrumb">
-                    <li><a href="#"><i className="fa fa-dashboard" /> Home</a></li>
-                    <li><a href="#">Users</a></li>
+                    <li><a href="/"><i className="fa fa-dashboard" /> Trang chủ</a></li>
+                    <li><a href="/users">Quản lý người dùng</a></li>
                 </ol>
             </section>
 
@@ -104,8 +104,8 @@ export default function UsersPage() {
                                             <th style={{ width: 80 }}>ID</th>
                                             <th>Email</th>
                                             
-                                            <th>Role</th>
-                                            <th>Status</th>
+                                            <th>Vai trò</th>
+                                            <th>Trạng thái</th>
                                             <th>Hành động</th>
                                         </tr>
                                     </thead>
@@ -118,7 +118,7 @@ export default function UsersPage() {
                                                 <td>{x.role}</td>
                                                 <td>
                                                     <span className={`label ${x.status === 1 ? "label-success" : "label-default"}`}>
-                                                        {x.status === 1 ? "Active" : "Inactive"}
+                                                        {x.status === 1 ? "Đang hoạt động" : "Ngừng hoạt động"}
                                                     </span>
                                                 </td>
                                                 <td>

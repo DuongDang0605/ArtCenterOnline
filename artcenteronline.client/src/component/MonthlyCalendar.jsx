@@ -1,4 +1,5 @@
-﻿// src/component/MonthlyCalendar.jsx
+﻿/* eslint-disable no-unused-vars */
+// src/component/MonthlyCalendar.jsx
 import { useEffect, useMemo, useState } from "react";
 import { getClasses } from "../Template/Class/classes";
 import { listSessions } from "../Template/Session/sessions";
@@ -12,9 +13,11 @@ function ymd(d) {
     return `${y}-${m}-${day}`;
 }
 function isSameDate(a, b) {
-    return a.getFullYear() === b.getFullYear() &&
+    return (
+        a.getFullYear() === b.getFullYear() &&
         a.getMonth() === b.getMonth() &&
-        a.getDate() === b.getDate();
+        a.getDate() === b.getDate()
+    );
 }
 function firstLastOfMonth(date) {
     const first = new Date(date.getFullYear(), date.getMonth(), 1);
@@ -24,20 +27,29 @@ function firstLastOfMonth(date) {
 function gridRange(date) {
     const { first, last } = firstLastOfMonth(date);
     const start = new Date(first);
-    start.setDate(start.getDate() - start.getDay());     // về Chủ nhật
+    start.setDate(start.getDate() - start.getDay()); // về Chủ nhật
     const end = new Date(last);
-    end.setDate(end.getDate() + (6 - end.getDay()));     // tới Thứ bảy
+    end.setDate(end.getDate() + (6 - end.getDay())); // tới Thứ bảy
     return { start, end };
 }
-function shortTime(ts) { return ts || ""; } // server trả "HH:mm"
+function shortTime(ts) {
+    return ts || ""; // server trả "HH:mm"
+}
 
 export default function MonthlyCalendar() {
-    const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const [month, setMonth] = useState(
+        () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    );
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
-    // {'YYYY-MM-DD': [{className, startTime, endTime, teacherName, status}]}
+
+    // {'YYYY-MM-DD': [{classId, className, startTime, endTime, teacherName, status}]}
     const [byDate, setByDate] = useState({});
     const [retryKey, setRetryKey] = useState(0); // tăng để kích hoạt retry
+
+    // Danh sách lớp & filter theo lớp
+    const [classes, setClasses] = useState([]); // [{classID, className, ...}]
+    const [selectedClassId, setSelectedClassId] = useState("all");
 
     const today = useMemo(() => new Date(), []);
     const { first, last } = useMemo(() => firstLastOfMonth(month), [month]);
@@ -53,7 +65,7 @@ export default function MonthlyCalendar() {
             } catch (e) {
                 lastErr = e;
                 // đợi 800ms rồi thử lại
-                await new Promise(r => setTimeout(r, 800));
+                await new Promise((r) => setTimeout(r, 800));
             }
         }
         throw lastErr;
@@ -67,28 +79,35 @@ export default function MonthlyCalendar() {
                 setErr("");
 
                 // 1) lấy danh sách lớp (có retry)
-                let classes = [];
+                let cls = [];
                 try {
-                    classes = await retryGetClasses();
-                } catch (e) {
+                    cls = await retryGetClasses();
+                } catch (_e) {
                     if (!alive) return;
                     setErr("Server chưa sẵn sàng, sẽ thử lại...");
-                    setTimeout(() => { if (alive) setRetryKey(k => k + 1); }, 1200);
+                    setTimeout(() => {
+                        if (alive) setRetryKey((k) => k + 1);
+                    }, 1200);
                     setLoading(false);
                     return;
                 }
+                if (!alive) return;
+                setClasses(cls);
 
                 // 2) lấy buổi học cho từng lớp trong tháng (ignore lỗi từng lớp)
                 const settled = await Promise.allSettled(
-                    classes.map(async (c) => {
-                         const arr = await listSessions(c.classID, first, last, { forCalendar: true }); // sessions.js format yyyy-MM-dd
-                        return arr.map(s => ({
-                            date: s.sessionDate,           // "yyyy-MM-dd"
+                    cls.map(async (c) => {
+                        const arr = await listSessions(c.classID, first, last, {
+                            forCalendar: true,
+                        }); // sessions.js format yyyy-MM-dd
+                        return arr.map((s) => ({
+                            date: s.sessionDate, // "yyyy-MM-dd"
+                            classId: Number(c.classID),
                             className: c.className,
-                            startTime: s.startTime,        // "HH:mm"
+                            startTime: s.startTime, // "HH:mm"
                             endTime: s.endTime,
                             teacherName: s.teacherName || null,
-                            status: s.status,              // 0..4
+                            status: s.status, // 0..4
                         }));
                     })
                 );
@@ -111,7 +130,9 @@ export default function MonthlyCalendar() {
                 if (alive) setLoading(false);
             }
         })();
-        return () => { alive = false; };
+        return () => {
+            alive = false;
+        };
         // retryKey để trigger thử lại khi server chưa sẵn sàng
     }, [first, last, retryKey]);
 
@@ -125,14 +146,52 @@ export default function MonthlyCalendar() {
 
     return (
         <div className="box box-primary">
-            <div className="box-header with-border" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button className="btn btn-default btn-sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
+            <div
+                className="box-header with-border"
+                style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+            >
+                <button
+                    className="btn btn-default btn-sm"
+                    onClick={() =>
+                        setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))
+                    }
+                >
                     <i className="fa fa-chevron-left" /> Tháng trước
                 </button>
-                <h3 className="box-title" style={{ margin: 0, flex: 1, textAlign: "center" }}>
+
+                <h3
+                    className="box-title"
+                    style={{ margin: 0, flex: 1, textAlign: "center" }}
+                >
                     Lịch tháng {month.getMonth() + 1}/{month.getFullYear()}
                 </h3>
-                <button className="btn btn-default btn-sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
+
+                {/* Filter theo lớp */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <label className="small" style={{ margin: 0 }}>
+                        Lọc lớp:
+                    </label>
+                    <select
+                        className="form-control input-sm"
+                        style={{ width: 220 }}
+                        value={selectedClassId}
+                        onChange={(e) => setSelectedClassId(e.target.value)}
+                    >
+                        <option value="all">Tất cả lớp</option>
+                        {classes.map((c) => (
+                            <option key={c.classID} value={String(c.classID)}>
+                                {c.className}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                <button
+                    className="btn btn-default btn-sm"
+                    onClick={() =>
+                        setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))
+                    }
+                >
                     Tháng sau <i className="fa fa-chevron-right" />
                 </button>
             </div>
@@ -146,8 +205,10 @@ export default function MonthlyCalendar() {
                     <table className="table table-bordered" style={{ margin: 0 }}>
                         <thead>
                             <tr>
-                                {VN_DOW.map(lbl => (
-                                    <th key={lbl} style={{ textAlign: "center" }}>{lbl}</th>
+                                {VN_DOW.map((lbl) => (
+                                    <th key={lbl} style={{ textAlign: "center" }}>
+                                        {lbl}
+                                    </th>
                                 ))}
                             </tr>
                         </thead>
@@ -160,6 +221,14 @@ export default function MonthlyCalendar() {
                                         const key = ymd(d);
                                         const items = byDate[key] || [];
 
+                                        // Áp dụng filter theo lớp (classId)
+                                        const filteredItems =
+                                            selectedClassId === "all"
+                                                ? items
+                                                : items.filter(
+                                                    (it) => it.classId === Number(selectedClassId)
+                                                );
+
                                         return (
                                             <td
                                                 key={key}
@@ -171,39 +240,55 @@ export default function MonthlyCalendar() {
                                                     padding: 6,
                                                 }}
                                             >
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                <div
+                                                    style={{
+                                                        display: "flex",
+                                                        justifyContent: "space-between",
+                                                        alignItems: "center",
+                                                    }}
+                                                >
                                                     <span style={{ fontWeight: 600 }}>{d.getDate()}</span>
-                                                    {isToday && <span className="label label-warning">Hôm nay</span>}
+                                                    {isToday && (
+                                                        <span className="label label-warning">Hôm nay</span>
+                                                    )}
                                                 </div>
 
                                                 <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
-                                                    {items.slice(0, 3).map((it, idx) => {
+                                                    {filteredItems.length === 0 && (
+                                                        <span className="text-muted small">—</span>
+                                                    )}
+
+                                                    {/* Hiện TẤT CẢ buổi, không còn slice */}
+                                                    {filteredItems.map((it, idx) => {
                                                         const isCancelled = Number(it.status) === 2;
                                                         return (
                                                             <div
                                                                 key={idx}
                                                                 className="small"
                                                                 style={{
-                                                                    borderLeft: `3px solid ${isCancelled ? "#dd4b39" : "#3c8dbc"}`, // đỏ nếu hủy
+                                                                    borderLeft: `3px solid ${isCancelled ? "#dd4b39" : "#3c8dbc"
+                                                                        }`, // đỏ nếu hủy
                                                                     paddingLeft: 6,
-                                                                    opacity: isCancelled ? 0.7 : 1
+                                                                    opacity: isCancelled ? 0.7 : 1,
                                                                 }}
                                                                 title={isCancelled ? "Buổi đã hủy" : ""}
                                                             >
                                                                 <div style={{ fontWeight: 600 }}>
-                                                                    {it.className}{isCancelled ? " (Hủy)" : ""}
+                                                                    {it.className}
+                                                                    {isCancelled ? " (Hủy)" : ""}
                                                                 </div>
-                                                                <div style={{ opacity: 0.85, textDecoration: isCancelled ? "line-through" : "none" }}>
+                                                                <div
+                                                                    style={{
+                                                                        opacity: 0.85,
+                                                                        textDecoration: isCancelled ? "line-through" : "none",
+                                                                    }}
+                                                                >
                                                                     {shortTime(it.startTime)}–{shortTime(it.endTime)}
                                                                     {it.teacherName ? ` · ${it.teacherName}` : ""}
                                                                 </div>
                                                             </div>
                                                         );
                                                     })}
-                                                    {items.length > 3 && (
-                                                        <span className="text-muted small">+{items.length - 3} buổi khác…</span>
-                                                    )}
-                                                    {items.length === 0 && <span className="text-muted small">—</span>}
                                                 </div>
                                             </td>
                                         );
@@ -217,7 +302,8 @@ export default function MonthlyCalendar() {
 
             <div className="box-footer">
                 <span className="text-muted">
-                    Dữ liệu lấy từ buổi học đã sinh (tất cả lớp). Chỉnh tại “Class → Xét lịch học → Lên lịch tháng này”.
+                    Dữ liệu lấy từ buổi học đã sinh (tất cả lớp). Chỉnh tại “Class → Xét lịch
+                    học → Lên lịch tháng này”.
                 </span>
             </div>
         </div>

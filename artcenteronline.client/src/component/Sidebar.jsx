@@ -28,21 +28,30 @@ export default function Sidebar() {
                     <li className="header">MAIN NAVIGATION</li>
 
                     {/* Class */}
+                    {isAdmin && (
+                        <li>
+                            <Link to="/reports">
+                                <i className="fa fa-chart-line" /> <span>Báo cáo</span>
+                            </Link>
+                        </li>
+                    )}
+
+
                     <li className="treeview">
                         <a href="#">
-                            <i className="fa fa-users" /> <span>Class</span>
+                            <i className="fa fa-users" /> <span>Quản lý lớp học</span>
                             <i className="fa fa-angle-left pull-right" />
                         </a>
                         <ul className="treeview-menu">
                             <li>
                                 <Link to="/classes">
-                                    <i className="fa fa-circle-o" /> View All Classes
+                                    <i className="fa fa-circle-o" /> Xem danh sách lớp học
                                 </Link>
                             </li>
                             {isAdmin && (
                                 <li>
                                     <Link to="/classes/add">
-                                        <i className="fa fa-circle-o" /> Add Class
+                                        <i className="fa fa-circle-o" /> Tạo lớp học mới
                                     </Link>
                                 </li>
                             )}
@@ -53,18 +62,18 @@ export default function Sidebar() {
                     {isAdmin && (
                         <li className="treeview">
                             <a href="#">
-                                <i className="fa fa-user" /> <span>User</span>
+                                <i className="fa fa-user" /> <span>Quản lý người dùng</span>
                                 <i className="fa fa-angle-left pull-right" />
                             </a>
                             <ul className="treeview-menu">
                                 <li>
                                     <Link to="/users">
-                                        <i className="fa fa-circle-o" /> View All Users
+                                        <i className="fa fa-circle-o" /> Xem danh sách người dùng
                                     </Link>
                                 </li>
                                 <li>
                                     <Link to="/users/new">
-                                        <i className="fa fa-circle-o" /> Add User
+                                        <i className="fa fa-circle-o" /> Thêm người dùng mới
                                     </Link>
                                 </li>
                             </ul>
@@ -74,19 +83,19 @@ export default function Sidebar() {
                     {/* Student */}
                     <li className="treeview">
                         <a href="#">
-                            <i className="fa fa-graduation-cap" /> <span>Student</span>
+                            <i className="fa fa-graduation-cap" /> <span>Quản lý học viên</span>
                             <i className="fa fa-angle-left pull-right" />
                         </a>
                         <ul className="treeview-menu">
                             <li>
                                 <Link to="/students">
-                                    <i className="fa fa-circle-o" /> View All Students
+                                    <i className="fa fa-circle-o" /> Xem danh sách học viên
                                 </Link>
                             </li>
                             {isAdmin && (
                                 <li>
                                     <Link to="/students/new">
-                                        <i className="fa fa-circle-o" /> Add Student
+                                        <i className="fa fa-circle-o" /> Thêm học viên mới
                                     </Link>
                                 </li>
                             )}
@@ -97,36 +106,42 @@ export default function Sidebar() {
                     {isAdmin && (
                         <li className="treeview">
                             <a href="#">
-                                <i className="fa fa-briefcase" /> <span>Teacher</span>
+                                <i className="fa fa-briefcase" /> <span>Quản lý giáo viên</span>
                                 <i className="fa fa-angle-left pull-right" />
                             </a>
                             <ul className="treeview-menu">
                                 <li>
                                     <Link to="/teachers">
-                                        <i className="fa fa-circle-o" /> View All Teachers
+                                        <i className="fa fa-circle-o" /> Xem danh sách giáo viên
                                     </Link>
                                 </li>
                                 <li>
                                     <Link to="/teachers/add">
-                                        <i className="fa fa-circle-o" /> Add Teacher
+                                        <i className="fa fa-circle-o" /> Thêm giáo viên mới
                                     </Link>
                                 </li>
                             </ul>
                         </li>
                     )}
-
-                    {/* Sessions */}
                     <li className="treeview">
                         <a href="#">
-                            <i className="fa fa-calendar" /> <span>Sessions</span>
+                            <i className="fa fa-graduation-cap" /> <span>Quản lý buổi học</span>
                             <i className="fa fa-angle-left pull-right" />
                         </a>
                         <ul className="treeview-menu">
                             <li>
                                 <Link to="/sessions">
-                                    <i className="fa fa-circle-o" /> View All Sessions
+                                    <i className="fa fa-circle-o" /> Danh sách buổi học
                                 </Link>
                             </li>
+                            {isAdmin && (
+                                <li>
+                                    <Link to="/reports/export-attendance">
+                                        <i className="fa fa-file-excel-o" /> <span>Xuất điểm danh</span>
+                                    </Link>
+                                </li>
+                            )}
+
                         </ul>
                     </li>
                 </ul>

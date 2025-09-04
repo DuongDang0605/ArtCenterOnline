@@ -1,7 +1,8 @@
 ﻿// src/Template/ClassSchedule/AddEditSchedulePage.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createSchedule, getSchedule, updateSchedule } from "./schedules";
+import { createSchedule, getSchedule, updateSchedule, checkStudentOverlapForSchedule } from "./schedules";
+import OverlapWarningModal from "../../component/OverlapWarningModal";
 
 const VI_DOW = [
     { v: 0, t: "Chủ nhật" },
@@ -12,6 +13,22 @@ const VI_DOW = [
     { v: 5, t: "Thứ 6" },
     { v: 6, t: "Thứ 7" },
 ];
+
+function todayYMD() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+}
+function endOfMonthYMD(fromStr) {
+    const [y, m] = fromStr.split("-").map(Number);
+    const last = new Date(y, m, 0); // day 0 of next month = last day current month
+    const yy = last.getFullYear();
+    const mm = String(last.getMonth() + 1).padStart(2, "0");
+    const dd = String(last.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+}
 
 export default function AddEditSchedulePage({ mode = "create" }) {
     const { classId, id } = useParams();
@@ -27,11 +44,16 @@ export default function AddEditSchedulePage({ mode = "create" }) {
         isActive: true,
     });
 
-    const [loading, setLoading] = useState(isEdit); // chỉ load khi edit
+    const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState("");
 
-    // tải dữ liệu khi edit
+    // Cảnh báo trùng học sinh
+    const [warnOpen, setWarnOpen] = useState(false);
+    const [warnings, setWarnings] = useState([]);
+    const [pendingPayload, setPendingPayload] = useState(null);
+
+    // nạp dữ liệu khi edit
     useEffect(() => {
         if (!isEdit) return;
         (async () => {
@@ -46,7 +68,16 @@ export default function AddEditSchedulePage({ mode = "create" }) {
                     isActive: !!data.isActive,
                 });
             } catch (e) {
-                setErr(e?.message || "Không tải được dữ liệu.");
+                const res = e?.response;
+                const msg =
+                    e?.userMessage ||
+                    res?.data?.message ||
+                    res?.data?.detail ||
+                    res?.data?.title ||
+                    (typeof res?.data === "string" ? res.data : null) ||
+                    e?.message ||
+                    "Không thể tải dữ liệu.";
+                setErr(String(msg));
             } finally {
                 setLoading(false);
             }
@@ -57,16 +88,16 @@ export default function AddEditSchedulePage({ mode = "create" }) {
         const { name, value, type, checked } = e.target;
         setForm((f) => ({
             ...f,
-            [name]: type === "checkbox" ? checked : name === "dayOfWeek" ? Number(value) : value,
+            [name]:
+                type === "checkbox" ? checked : name === "dayOfWeek" ? Number(value) : value,
         }));
     };
 
     const validate = () => {
-        // kiểm tra giờ: "HH:mm"
         const s = form.startTime;
         const e = form.endTime;
         if (!s || !e) return "Giờ bắt đầu/kết thúc không hợp lệ.";
-        // so sánh bằng chuỗi "HH:mm" vẫn đúng thứ tự từ điển -> tạm dùng
+        // so sánh "HH:mm"
         if (e <= s) return "Giờ kết thúc phải lớn hơn giờ bắt đầu.";
         return "";
     };
@@ -76,37 +107,72 @@ export default function AddEditSchedulePage({ mode = "create" }) {
         setErr("");
 
         const v = validate();
-        if (v) {
-            setErr(v);
-            return;
-        }
+        if (v) return setErr(v);
 
+        // payload chuẩn cho CREATE/UPDATE
         const payload = {
             ...form,
-            // chuẩn hoá thành "HH:mm:ss" để map TimeSpan
-            startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime,
+            startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime, // "HH:mm:ss"
             endTime: form.endTime.length === 5 ? form.endTime + ":00" : form.endTime,
         };
 
         try {
+            // 1) Chỉ preflight khi EDIT (endpoint BE theo id)
+            if (isEdit) {
+                const preflight = {
+                    // Dùng chữ hoa để khớp model BE, nhưng binder cũng case-insensitive
+                    ClassID: Number(form.classID ?? classId),
+                    DayOfWeek: Number(form.dayOfWeek),
+                    StartTime: payload.startTime,
+                    EndTime: payload.endTime,
+                    Note: form.note || null,
+                    IsActive: !!form.isActive,
+                };
+                const from = todayYMD();
+                const to = endOfMonthYMD(from);
+                const list = await checkStudentOverlapForSchedule(Number(id), preflight, { from, to });
+                if (list.length > 0) {
+                    setWarnings(list);
+                    setPendingPayload(payload);
+                    setWarnOpen(true);
+                    return; // dừng lại, chờ xác nhận
+                }
+            }
+
+            // 2) Không có cảnh báo (hoặc create) → lưu luôn
             setSaving(true);
             if (isEdit) {
                 await updateSchedule(id, payload);
+                navigate(`/classes/${classId}/schedules`, {
+                    state: { success: "Cập nhật lịch học thành công!" },
+                    replace: true,
+                });
             } else {
                 await createSchedule(payload);
+                navigate(`/classes/${classId}/schedules`, {
+                    state: { success: "Tạo lịch học thành công!" },
+                    replace: true,
+                });
             }
-            // chỉ điều hướng khi KHÔNG lỗi
-            navigate(`/classes/${classId}/schedules`);
         } catch (e) {
-            // hiện lỗi rõ ràng (409 từ server: “Lịch này đã tồn tại.”)
-            const msg = (e?.message || "").trim();
-            if (msg.includes("đã tồn tại") || msg.includes("Conflict")) {
-                setErr("Lịch này đã tồn tại (trùng Lớp + Thứ + Giờ bắt đầu).");
-            } else if (msg) {
-                setErr(msg);
-            } else {
-                setErr("Không thể lưu. Vui lòng thử lại.");
+            const res = e?.response;
+            let msg =
+                e?.userMessage ||
+                res?.data?.message ||
+                res?.data?.detail ||
+                res?.data?.title ||
+                (typeof res?.data === "string" ? res.data : null) ||
+                e?.message;
+
+            // gom lỗi ModelState nếu có
+            if (!e?.userMessage && res?.data?.errors && typeof res.data.errors === "object") {
+                const lines = [];
+                for (const [field, arr] of Object.entries(res.data.errors)) {
+                    (arr || []).forEach((x) => lines.push(`${field}: ${x}`));
+                }
+                if (lines.length) msg = lines.join("\n");
             }
+            setErr(String(msg || "Không thể lưu. Vui lòng thử lại."));
         } finally {
             setSaving(false);
         }
@@ -141,13 +207,13 @@ export default function AddEditSchedulePage({ mode = "create" }) {
                     <form onSubmit={onSubmit} noValidate>
                         <div className="box-body">
                             {loading && <p className="text-muted">Đang tải…</p>}
-                            {err && !loading && (
+
+                            {err && (
                                 <div className="alert alert-danger" role="alert" style={{ fontSize: "16px", fontWeight: "bold" }}>
-                                    <i className="fa fa-exclamation-circle" style={{ marginRight: 6 }}></i>
-                                    {err}
+                                    <i className="fa fa-exclamation-circle" style={{ marginRight: 6 }} />
+                                    <span style={{ whiteSpace: "pre-wrap" }}>{err}</span>
                                 </div>
                             )}
-
 
                             {!loading && (
                                 <>
@@ -240,6 +306,38 @@ export default function AddEditSchedulePage({ mode = "create" }) {
                     </form>
                 </div>
             </section>
+
+            {/* Modal cảnh báo trùng học sinh (EDIT) */}
+            <OverlapWarningModal
+                open={warnOpen}
+                warnings={warnings}
+                title="Cảnh báo trùng học sinh (lịch mẫu)"
+                onCancel={() => setWarnOpen(false)}
+                onConfirm={async () => {
+                    try {
+                        setSaving(true);
+                        await updateSchedule(id, pendingPayload || {});
+                        setWarnOpen(false);
+                        navigate(`/classes/${classId}/schedules`, {
+                            state: { success: "Cập nhật lịch học thành công!" },
+                            replace: true,
+                        });
+                    } catch (e) {
+                        const res = e?.response;
+                        const msg =
+                            e?.userMessage ||
+                            res?.data?.message ||
+                            res?.data?.detail ||
+                            res?.data?.title ||
+                            (typeof res?.data === "string" ? res.data : null) ||
+                            e?.message ||
+                            "Có lỗi xảy ra khi lưu.";
+                        setErr(String(msg));
+                    } finally {
+                        setSaving(false);
+                    }
+                }}
+            />
         </>
     );
 }

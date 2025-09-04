@@ -123,4 +123,37 @@ table.dataTable {
         }
 }
 
+/* popover lịch: không phá layout */
+/* Thụt gần sidebar hơn */
+.report-wrapper .container-fluid {
+    padding-left: 10px !important; /* mặc định 15px */
+    padding-right: 10px !important;
+}
 
+/* KPI đẹp hơn */
+.kpi-box {
+    transition: transform .15s ease, box-shadow .15s ease;
+    border-radius: 0.5rem;
+}
+
+    .kpi-box:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    }
+
+.kpi-value {
+    font-weight: 700;
+    margin: 0;
+}
+
+.kpi-title {
+    font-weight: 600;
+}
+
+.kpi-sub {
+    margin-top: .25rem;
+}
+
+.kpi-icon {
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,.2));
+}

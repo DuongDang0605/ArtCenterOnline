@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { getStudentsInClass, setClassStudentActive } from "../Class/classStudents";
+import { getClass } from "../Class/classes";
 
 export default function ClassStudentsInClassPage() {
     const { classId } = useParams();
@@ -10,6 +11,7 @@ export default function ClassStudentsInClassPage() {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
+    const [classInfo, setClassInfo] = useState(null);
 
     const tableRef = useRef(null);
     const dtRef = useRef(null);
@@ -33,17 +35,31 @@ export default function ClassStudentsInClassPage() {
         let alive = true;
         (async () => {
             try {
-                const data = await getStudentsInClass(classId);
+                const [list, cls] = await Promise.all([
+                    getStudentsInClass(classId),
+                    getClass(classId),
+                ]);
+
                 if (!alive) return;
-                setRows((Array.isArray(data) ? data : []).map(normalize));
+
+                // Chuẩn hoá classInfo để header render tên lớp
+                const className = cls?.className ?? cls?.ClassName ?? `#${classId}`;
+                setClassInfo({ classId, className });
+
+                // Chuẩn hoá danh sách
+                const arr = Array.isArray(list) ? list : [];
+                setRows(arr.map(normalize));
             } catch (e) {
                 if (alive) setErr(e?.message || "Fetch failed");
             } finally {
                 if (alive) setLoading(false);
             }
         })();
-        return () => { alive = false; };
+        return () => {
+            alive = false;
+        };
     }, [classId]);
+
 
     // DataTable (destroy không truyền true + delay init 1 nhịp)
     useEffect(() => {
@@ -114,7 +130,7 @@ export default function ClassStudentsInClassPage() {
     return (
         <>
             <section className="content-header">
-                <h1>Học viên trong lớp #{classId}</h1>
+                <h1>Học viên trong lớp  {classInfo?.className}</h1>
                 <ol className="breadcrumb">
                     <li><a href="#"><i className="fa fa-dashboard" /> Trang chủ</a></li>
                     <li><Link to="/classes">Lớp học</Link></li>

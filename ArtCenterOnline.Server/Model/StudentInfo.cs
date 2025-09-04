@@ -12,6 +12,8 @@ namespace ArtCenterOnline.Server.Model
         public int SoBuoiHocConLai { get; set; } = 0;
         public int SoBuoiHocDaHoc { get; set; } = 0;
         public int Status { get; set; } = 0;
+        public DateTime? StatusChangedAt { get; set; }
+
         public ICollection<ClassStudent> ClassStudents { get; set; } = new List<ClassStudent>();
 
     }

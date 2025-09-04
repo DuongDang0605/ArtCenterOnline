@@ -104,7 +104,9 @@ namespace ArtCenterOnline.Server.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("SessionId"));
 
                     b.Property<bool>("AccountingApplied")
-                        .HasColumnType("bit");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime?>("AccountingAppliedAtUtc")
                         .HasColumnType("datetime2");
@@ -230,6 +232,9 @@ namespace ArtCenterOnline.Server.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(1);
+
+                    b.Property<DateTime?>("StatusChangedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("StudentName")
                         .IsRequired()

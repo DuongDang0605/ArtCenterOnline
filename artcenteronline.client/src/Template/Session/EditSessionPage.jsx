@@ -1,10 +1,11 @@
 ﻿// src/Template/Session/EditSessionPage.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { getSession, updateSession } from "./sessions";
+import { getSession, updateSession, checkStudentOverlapForSession } from "./sessions";
 import { getClasses } from "../Class/classes";
+import OverlapWarningModal from "../../component/OverlapWarningModal";
 
-// Chuẩn bị hàm lấy danh sách giáo viên (không dùng top‑level await)
+// Chuẩn bị hàm lấy danh sách giáo viên (không dùng top-level await)
 let fetchTeachers = async () => [];
 try {
     const modPromise = import("../Teacher/teachers");
@@ -28,6 +29,7 @@ export default function EditSessionPage() {
     const [err, setErr] = useState("");
 
     const [info, setInfo] = useState(null);     // dữ liệu gốc
+    // eslint-disable-next-line no-unused-vars
     const [classes, setClasses] = useState([]);
     const [teachers, setTeachers] = useState([]);
 
@@ -38,6 +40,12 @@ export default function EditSessionPage() {
     const [teacherId, setTeacherId] = useState(""); // "" => fallback main teacher
     const [status, setStatus] = useState(0);        // 0 Planned, 1 Completed, 2 Cancelled, 3 NoShow, 4 Rescheduled
     const [note, setNote] = useState("");
+
+    // cảnh báo trùng học sinh
+    const [warnOpen, setWarnOpen] = useState(false);
+    const [warnings, setWarnings] = useState([]);
+    const [pendingPatch, setPendingPatch] = useState(null);
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         let alive = true;
@@ -89,20 +97,49 @@ export default function EditSessionPage() {
             return;
         }
 
+        const patch = {
+            SessionDate: sessionDate,                // "yyyy-MM-dd"
+            StartTime: startTime,                    // "HH:mm"
+            EndTime: endTime,                        // "HH:mm"
+            TeacherId: teacherId === "" ? null : Number(teacherId),
+            Note: note || null,
+            Status: Number(status),
+        };
+
         try {
-            const patch = {
-                SessionDate: sessionDate,       // "yyyy-MM-dd"
-                StartTime: startTime,           // "HH:mm"
-                EndTime: endTime,               // "HH:mm"
-                TeacherId: teacherId === "" ? null : Number(teacherId),
-                Note: note || null,
-                Status: Number(status),         // ✅ gửi trạng thái lên server
-            };
+            // 1) Preflight cảnh báo
+            const list = await checkStudentOverlapForSession(Number(id), patch);
+            if (list.length > 0) {
+                setWarnings(list);
+                setPendingPatch(patch);
+                setWarnOpen(true);
+                return; // dừng lại, chờ xác nhận
+            }
+
+            // 2) Không có cảnh báo → lưu luôn
+            setSaving(true);
             await updateSession(Number(id), patch);
-            alert("Cập nhật buổi học thành công.");
-            navigate("/sessions");
+            navigate("/sessions", { state: { flash: "Cập nhật buổi học thành công." }, replace: true });
         } catch (e) {
-            setErr(e?.message || "Cập nhật thất bại");
+            const res = e?.response;
+            let msg =
+                e?.userMessage ||
+                res?.data?.message ||
+                res?.data?.detail ||
+                res?.data?.title ||
+                (typeof res?.data === "string" ? res.data : null) ||
+                e?.message ||
+                "Cập nhật thất bại";
+            // Nếu BE (không nên) trả list như lỗi
+            if (Array.isArray(res?.data) && res.data.length) {
+                setWarnings(res.data);
+                setPendingPatch(patch);
+                setWarnOpen(true);
+                msg = "Có cảnh báo trùng lịch.";
+            }
+            setErr(String(msg));
+        } finally {
+            setSaving(false);
         }
     }
 
@@ -197,11 +234,11 @@ export default function EditSessionPage() {
                                         onChange={e => setStatus(Number(e.target.value))}
                                         disabled={!info.canEdit}
                                     >
-                                        <option value={0}>Planned</option>
-                                        <option value={1}>Completed</option>
-                                        <option value={2}>Cancelled</option>
-                                        <option value={3}>NoShow</option>
-                                        <option value={4}>Rescheduled</option>
+                                        <option value={0}>Chưa diễn ra</option>
+                                        <option value={1}>Hoàn thành</option>
+                                        <option value={2}>Bị hủy</option>
+                                        <option value={3}>Ẩn</option>
+                                        <option value={4}>Học bù</option>
                                     </select>
                                     <p className="help-block">
                                         Chỉ có thể hủy khi buổi <b>chưa diễn ra</b>.
@@ -221,13 +258,42 @@ export default function EditSessionPage() {
                             <button type="button" className="btn btn-default" onClick={() => navigate("/sessions")}>
                                 Hủy
                             </button>
-                            <button type="submit" className="btn btn-primary pull-right" disabled={!info.canEdit}>
-                                Lưu thay đổi
+                            <button type="submit" className="btn btn-primary pull-right" disabled={!info.canEdit || saving}>
+                                {saving ? "Đang lưu..." : "Lưu thay đổi"}
                             </button>
                         </div>
                     </form>
                 </div>
             </section>
+
+            {/* Modal cảnh báo trùng học sinh */}
+            <OverlapWarningModal
+                open={warnOpen}
+                warnings={warnings}
+                title="Cảnh báo trùng học sinh (buổi học)"
+                onCancel={() => setWarnOpen(false)}
+                onConfirm={async () => {
+                    try {
+                        setSaving(true);
+                        await updateSession(Number(id), pendingPatch || {});
+                        setWarnOpen(false);
+                        navigate("/sessions", { state: { flash: "Cập nhật buổi học thành công." }, replace: true });
+                    } catch (e) {
+                        const res = e?.response;
+                        const msg =
+                            e?.userMessage ||
+                            res?.data?.message ||
+                            res?.data?.detail ||
+                            res?.data?.title ||
+                            (typeof res?.data === "string" ? res.data : null) ||
+                            e?.message ||
+                            "Có lỗi xảy ra khi lưu.";
+                        setErr(String(msg));
+                    } finally {
+                        setSaving(false);
+                    }
+                }}
+            />
         </>
     );
 }

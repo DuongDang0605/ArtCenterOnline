@@ -96,7 +96,7 @@ export default function EditUserPage() {
     return (
         <>
             <section className="content-header">
-                <h1>Chỉnh sửa người dùng</h1>
+                <h1>Chỉnh sửa tài khoản</h1>
                 <ol className="breadcrumb">
                     <li>
                         <a href="#">
@@ -104,9 +104,9 @@ export default function EditUserPage() {
                         </a>
                     </li>
                     <li>
-                        <Link to="/users">Users</Link>
+                        <Link to="/users">Quản lý người dùng</Link>
                     </li>
-                    <li className="active">Edit</li>
+                    <li className="active">Sửa tài khoản</li>
                 </ol>
             </section>
 
@@ -158,13 +158,13 @@ export default function EditUserPage() {
                                 </div>
 
                                 <div className="form-group">
-                                    <label>Role (chỉ hiển thị)</label>
+                                    <label>Vai trò</label>
                                     <input type="text" className="form-control" value={form.role} disabled />
-                                    <p className="help-block">Role được lưu trên server và không chỉnh tại đây.</p>
+                                    <p className="help-block">Vai trò được lưu trên server và không chỉnh tại đây.</p>
                                 </div>
 
                                 <div className="form-group">
-                                    <label>Status</label>
+                                    <label>Trạng thái</label>
                                     <select
                                         className="form-control"
                                         name="status"
@@ -172,8 +172,8 @@ export default function EditUserPage() {
                                         onChange={onChange}
                                         disabled={isAdmin}
                                     >
-                                        <option value={1}>Active</option>
-                                        <option value={0}>Inactive</option>
+                                        <option value={1}>Hoạt động</option>
+                                        <option value={0}>Ngừng hoạt động</option>
                                     </select>
                                 </div>
 

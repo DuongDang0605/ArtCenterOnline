@@ -203,7 +203,7 @@ export default function StudentsPage() {
                                             <th>Địa chỉ</th>
                                             <th>Ngày nhập học</th>
                                             <th>Số buổi đã học</th>
-                                            <th>Số buổi còn lại</th>
+                                          
                                             <th>Trạng thái</th>
                                             <th>Hành động</th>
                                         </tr>
@@ -219,7 +219,7 @@ export default function StudentsPage() {
                                                 <td>{r.address}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>{r.learned}</td>
-                                                <td>{r.remaining}</td>
+                                          
                                                 <td>
                                                     <span
                                                         className={

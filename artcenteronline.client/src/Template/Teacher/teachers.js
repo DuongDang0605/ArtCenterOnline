@@ -18,8 +18,7 @@ export async function createTeacher(payload) {
         Password: val(payload?.Password ?? payload?.password),
         TeacherName: val(payload?.TeacherName ?? payload?.teacherName) ?? "",
         PhoneNumber: val(payload?.PhoneNumber ?? payload?.phoneNumber) ?? "",
-        SoBuoiDayTrongThang: Number(payload?.SoBuoiDayTrongThang ?? payload?.soBuoiDayTrongThang) || 0,
-        status: Number(payload?.status ?? payload?.Status)|| 1 ,
+        status: Number(payload?.status ?? payload?.Status) || 1,
     };
     if (!dto.Email) throw new Error("Vui lòng nhập Email.");
     if (!dto.Password || String(dto.Password).length < 6)
@@ -30,21 +29,16 @@ export async function createTeacher(payload) {
 
 // src/Template/Teacher/teachers.js
 export async function updateTeacher(id, payload) {
-    // Giữ 0/1 đúng ý, chỉ fallback khi null/undefined/""/NaN
     const raw = payload?.status ?? payload?.Status;
     const parsed = (raw === null || raw === undefined || raw === "") ? 1 : Number(raw);
     const status = Number.isNaN(parsed) ? 1 : parsed;
 
     const dto = {
         TeacherId: Number(id),
-        // Không đổi email thì để undefined -> JSON sẽ bỏ qua
         Email: payload?.Email ?? payload?.email ?? undefined,
         TeacherName: payload?.TeacherName ?? payload?.teacherName ?? "",
         PhoneNumber: payload?.PhoneNumber ?? payload?.phoneNumber ?? "",
-        SoBuoiDayTrongThang: Number(
-            payload?.SoBuoiDayTrongThang ?? payload?.soBuoiDayTrongThang
-        ) || 0,
-        status, // <- quan trọng: giữ được 0
+        status,
     };
 
     const res = await http.put(`/Teachers/${id}`, dto);

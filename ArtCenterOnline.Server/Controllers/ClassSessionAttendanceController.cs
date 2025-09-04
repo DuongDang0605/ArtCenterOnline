@@ -74,6 +74,7 @@ public class ClassSessionAttendanceController : ControllerBase
         var (allowed, reason) = await _guard.CanTakeAsync(User, role, s, _db);
         if (!allowed) return Forbid(reason);
 
+        // Xác nhận HS còn active trong lớp
         foreach (var it in items)
         {
             bool active = await _db.ClassStudents.AnyAsync(cs =>
@@ -110,8 +111,18 @@ public class ClassSessionAttendanceController : ControllerBase
             }
         }
 
+        // Lưu attendance
         await _db.SaveChangesAsync();
-        return Ok(new { message = "Lưu điểm danh thành công." });
+
+        // ❗YÊU CẦU MỚI: Hễ có điểm danh -> đánh dấu buổi Completed (1)
+        // Làm ngay sau khi lưu điểm danh, không ràng buộc trạng thái trước đó.
+        s.Status = SessionStatus.Completed;
+        await _db.SaveChangesAsync();
+        // sau khi set: s.Status = SessionStatus.Completed; await _db.SaveChangesAsync();
+        var (applied, msg) = await _accounting.ApplyAsync(sessionId);
+        // tuỳ chọn: trả message rõ ràng
+        return Ok(new { message = applied ? "Điểm danh + hạch toán thành công." : (msg ?? "Đã hạch toán trước đó.") });
+
     }
 
     [HttpPost("{sessionId:int}/accounting/apply")]

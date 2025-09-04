@@ -1,6 +1,6 @@
 ﻿// src/Template/ClassSchedule/ClassSchedulesPage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { getSchedulesByClass, deleteSchedule, toggleSchedule } from "./schedules";
 
 const VI_DOW = ["CN", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
@@ -8,28 +8,55 @@ const fmt = (t) => (t || "").slice(0, 5); // "HH:mm:ss" -> "HH:mm"
 
 export default function ClassSchedulesPage() {
     const { classId } = useParams();
+    const location = useLocation();
+    const navigate = useNavigate();
+
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
+    const [success, setSuccess] = useState("");
     const tableRef = useRef(null);
     const dtRef = useRef(null);
+
+    // Nhận success từ trang trước (Add/Edit) qua location.state.success
+    useEffect(() => {
+        const s = location?.state?.success;
+        if (s) {
+            setSuccess(String(s));
+            // xoá state để F5 không hiện lại
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location, navigate]);
+
+    function extractErr(e) {
+        const res = e?.response;
+        return (
+            e?.userMessage ||
+            res?.data?.message ||
+            res?.data?.detail ||
+            res?.data?.title ||
+            (typeof res?.data === "string" ? res.data : null) ||
+            e?.message ||
+            "Có lỗi xảy ra."
+        );
+    }
 
     async function load() {
         setLoading(true);
         setErr(null);
         try {
             const data = await getSchedulesByClass(classId);
-            console.log("Schedules:", data);
             setRows(Array.isArray(data) ? data : []);
         } catch (e) {
-            console.error(e);
-            setErr(e?.message || "Fetch failed");
+            setErr(extractErr(e));
         } finally {
             setLoading(false);
         }
     }
 
-    useEffect(() => { load(); }, [classId]);
+    useEffect(() => {
+        load();
+    }, [classId]);
 
     // Khởi tạo DataTable 1 lần
     useEffect(() => {
@@ -45,7 +72,8 @@ export default function ClassSchedulesPage() {
                     info: true,
                     dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>tr<'row'<'col-sm-5'i><'col-sm-7'p>>",
                     language: {
-                        search: "Tìm kiếm:", lengthMenu: "Hiện _MENU_ dòng",
+                        search: "Tìm kiếm:",
+                        lengthMenu: "Hiện _MENU_ dòng",
                         info: "Hiển thị _START_-_END_ / _TOTAL_ dòng",
                         paginate: { previous: "Trước", next: "Sau" },
                         zeroRecords: "Không có dữ liệu",
@@ -55,7 +83,11 @@ export default function ClassSchedulesPage() {
         }
         return () => {
             if (dtRef.current) {
-                try { dtRef.current.destroy(true); } catch { /* empty */ }
+                try {
+                    dtRef.current.destroy(true);
+                } catch {
+                    /* empty */
+                }
                 dtRef.current = null;
             }
         };
@@ -101,13 +133,25 @@ export default function ClassSchedulesPage() {
         const onToggleClick = async (e) => {
             const id = e.target.closest("button")?.dataset.id;
             if (id) {
-                try { await toggleSchedule(id); await load(); } catch (err) { alert(err); }
+                try {
+                    await toggleSchedule(id);
+                    setSuccess("Đã cập nhật trạng thái lịch học.");
+                    await load();
+                } catch (err0) {
+                    alert(extractErr(err0));
+                }
             }
         };
         const onDeleteClick = async (e) => {
             const id = e.target.closest("button")?.dataset.id;
             if (id && confirm("Xoá lịch học này?")) {
-                try { await deleteSchedule(id); await load(); } catch (err) { alert(err); }
+                try {
+                    await deleteSchedule(id);
+                    setSuccess("Đã xoá lịch học.");
+                    await load();
+                } catch (err0) {
+                    alert(extractErr(err0));
+                }
             }
         };
 
@@ -125,8 +169,14 @@ export default function ClassSchedulesPage() {
             <section className="content-header">
                 <h1>Lịch học theo tuần · Lớp #{classId}</h1>
                 <ol className="breadcrumb">
-                    <li><a href="#"><i className="fa fa-dashboard" /> Home</a></li>
-                    <li><Link to="/classes">Class</Link></li>
+                    <li>
+                        <a href="#">
+                            <i className="fa fa-dashboard" /> Home
+                        </a>
+                    </li>
+                    <li>
+                        <Link to="/classes">Class</Link>
+                    </li>
                     <li className="active">Schedules</li>
                 </ol>
             </section>
@@ -143,8 +193,32 @@ export default function ClassSchedulesPage() {
                     </div>
 
                     <div className="box-body">
+                        {/* Banner lỗi */}
+                        {err && (
+                            <div className="alert alert-danger" role="alert" style={{ fontSize: "16px", fontWeight: "bold" }}>
+                                <i className="fa fa-exclamation-circle" style={{ marginRight: 6 }} />
+                                <span style={{ whiteSpace: "pre-wrap" }}>{err}</span>
+                            </div>
+                        )}
+
+                        {/* Banner thành công */}
+                        {success && (
+                            <div className="alert alert-success alert-dismissible" role="alert" style={{ fontSize: "16px", fontWeight: "bold" }}>
+                                <button
+                                    type="button"
+                                    className="close"
+                                    aria-label="Close"
+                                    onClick={() => setSuccess("")}
+                                    style={{ fontSize: 20 }}
+                                >
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                                <i className="fa fa-check-circle" style={{ marginRight: 6 }} />
+                                {success}
+                            </div>
+                        )}
+
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <p className="text-red">Lỗi: {err}</p>}
 
                         {!loading && !err && (
                             <div className="table-responsive">

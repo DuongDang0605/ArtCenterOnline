@@ -1,5 +1,6 @@
 ﻿using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
+using ArtCenterOnline.Server.Services; // <-- thêm
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,13 @@ using Microsoft.EntityFrameworkCore;
 public class StudentsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    public StudentsController(AppDbContext db) => _db = db;
+    private readonly IStudentLifecycleService _lifecycle; // <-- thêm
+
+    public StudentsController(AppDbContext db, IStudentLifecycleService lifecycle) // <-- inject
+    {
+        _db = db;
+        _lifecycle = lifecycle;
+    }
 
     [HttpGet]
     [Authorize(Roles = "Admin,Teacher")]
@@ -56,7 +63,36 @@ public class StudentsController : ControllerBase
     public async Task<IActionResult> Update(int id, StudentInfo input)
     {
         if (id != input.StudentId) return BadRequest();
-        _db.Entry(input).State = EntityState.Modified;
+
+        var existing = await _db.Students.FindAsync(id);
+        if (existing == null) return NotFound();
+
+        // Cập nhật các field cho phép
+        existing.StudentName = input.StudentName;
+        existing.ParentName = input.ParentName;
+        existing.PhoneNumber = input.PhoneNumber;
+        existing.Adress = input.Adress;
+        existing.ngayBatDauHoc = input.ngayBatDauHoc;
+        existing.SoBuoiHocConLai = input.SoBuoiHocConLai;
+        existing.SoBuoiHocDaHoc = input.SoBuoiHocDaHoc;
+
+        // Nếu Status thay đổi
+        if (existing.Status != input.Status)
+        {
+            if (input.Status == 0)
+            {
+                // Gọi service để tắt toàn hệ thống
+                var affected = await _lifecycle.DeactivateStudentAsync(id);
+                return Ok(new { message = $"Đã chuyển học sinh sang nghỉ học, tắt {affected} liên kết lớp." });
+            }
+            else
+            {
+                // Cho phép bật lại trạng thái học sinh (không tự động bật lại các liên kết lớp)
+                existing.Status = input.Status;
+                existing.StatusChangedAt = DateTime.UtcNow;
+            }
+        }
+
         await _db.SaveChangesAsync();
         return NoContent();
     }

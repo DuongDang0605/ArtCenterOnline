@@ -1,6 +1,6 @@
 ﻿// src/Template/Class/ClassesPage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/authCore";
 import { getClasses } from "./classes";
 
@@ -23,12 +23,26 @@ export default function ClassesPage() {
     const { roles: ctxRoles = [] } = useAuth();
     const isAdmin = ctxRoles.includes("Admin");
 
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    const [flash, setFlash] = useState(""); // ⬅️ banner success
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
 
     const tableRef = useRef(null);
     const dtRef = useRef(null);
+
+    // Nhận flash từ điều hướng (EditClassPage)
+    useEffect(() => {
+        const f = location?.state?.flash;
+        if (f) {
+            setFlash(String(f));
+            // xoá state để F5 không hiện lại
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location, navigate]);
 
     // Load data
     useEffect(() => {
@@ -86,16 +100,8 @@ export default function ClassesPage() {
                 processing: "Đang xử lý...",
                 search: "Tìm kiếm:",
                 zeroRecords: "Không tìm thấy kết quả phù hợp",
-                paginate: {
-                    first: "Đầu",
-                    last: "Cuối",
-                    next: "Sau",
-                    previous: "Trước",
-                },
-                aria: {
-                    sortAscending: ": sắp xếp tăng dần",
-                    sortDescending: ": sắp xếp giảm dần",
-                },
+                paginate: { first: "Đầu", last: "Cuối", next: "Sau", previous: "Trước" },
+                aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
                 { targets: 0, width: 80 },   // ID
@@ -140,8 +146,20 @@ export default function ClassesPage() {
                     </div>
 
                     <div className="box-body">
+                        {/* Banner success khi quay lại từ EditClass */}
+                        {flash && (
+                            <div className="alert alert-success alert-dismissible" role="alert" style={{ fontSize: 16, fontWeight: "bold" }}>
+                                <button type="button" className="close" aria-label="Close" onClick={() => setFlash("")} style={{ fontSize: 20 }}>
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                                <i className="fa fa-check-circle" style={{ marginRight: 6 }} />
+                                {flash}
+                            </div>
+                        )}
+
                         {loading && <p className="text-muted">Đang tải…</p>}
                         {err && <p className="text-red">Lỗi: {String(err)}</p>}
+
                         {!loading && !err && (
                             <div className="table-responsive">
                                 <table
@@ -223,7 +241,7 @@ export default function ClassesPage() {
                                             </tr>
                                         ))}
                                     </tbody>
-                                   
+
                                 </table>
                             </div>
                         )}

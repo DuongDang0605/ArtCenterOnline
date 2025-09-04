@@ -20,7 +20,9 @@ export default function TeachersPage() {
         const userId = x[pick("userId", "UserId")];
         const name = x[pick("teacherName", "TeacherName", "name")];
         const phone = x[pick("phoneNumber", "PhoneNumber", "phone")];
-        const sessionsPerMonth = x[pick("soBuoiDayTrongThang", "SoBuoiDayTrongThang", "sessionsPerMonth")] ?? 0;
+        const sessionsPerMonth =
+            x["sessionsThisMonth"] // mới từ BE
+            ?? 0;
         const rawStatus = x[pick("status", "Status", "statusNumber")] ?? 0;
         let statusNum = 0;
         if (typeof rawStatus === "number") statusNum = rawStatus ? 1 : 0;

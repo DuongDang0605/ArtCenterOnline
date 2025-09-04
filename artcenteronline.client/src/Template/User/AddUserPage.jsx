@@ -50,8 +50,8 @@ export default function AddUserPage() {
                 <h1>Thêm người dùng</h1>
                 <ol className="breadcrumb">
                     <li><a href="#"><i className="fa fa-dashboard" /> Trang chủ</a></li>
-                    <li><Link to="/users">Users</Link></li>
-                    <li className="active">Add</li>
+                    <li><Link to="/users">Quản lý người dùng</Link></li>
+                    <li className="active">Thêm người dùng mới</li>
                 </ol>
             </section>
 
@@ -77,7 +77,7 @@ export default function AddUserPage() {
                             </div>
 
                             <div className="form-group">
-                                <label>Password</label>
+                                <label>Mật Khẩu</label>
                                 <input
                                     type="text"
                                     className="form-control"
@@ -89,7 +89,7 @@ export default function AddUserPage() {
                             </div>
 
                             <div className="form-group">
-                                <label>Role</label>
+                                <label>Vai trò</label>
                                 <select
                                     className="form-control"
                                     name="role"
@@ -97,8 +97,8 @@ export default function AddUserPage() {
                                     onChange={onChange}
                                 >
                                     {/* Không có Admin trong lựa chọn */}
-                                    <option value="Teacher">Teacher</option>
-                                    <option value="Student">Student</option>
+                                    <option value="Teacher">Giáo viên</option>
+                                    <option value="Student">Học sinh</option>
                                 </select>
                                 {isAdmin && (
                                     <p className="text-red small">Không thể tạo role Admin.</p>
@@ -106,15 +106,15 @@ export default function AddUserPage() {
                             </div>
 
                             <div className="form-group">
-                                <label>Status</label>
+                                <label>Trạng thái</label>
                                 <select
                                     className="form-control"
                                     name="status"
                                     value={form.status}
                                     onChange={onChange}
                                 >
-                                    <option value={1}>Active</option>
-                                    <option value={0}>Inactive</option>
+                                    <option value={1}>Hoạt động</option>
+                                    <option value={0}>Ngừng hoạt động</option>
                                 </select>
                             </div>
 

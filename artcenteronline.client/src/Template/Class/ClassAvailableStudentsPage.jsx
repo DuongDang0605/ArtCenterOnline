@@ -2,17 +2,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { addStudentToClass, addStudentsToClassBatch } from "./classStudents";   // sửa đường dẫn
-import { getActiveStudentsNotInClass } from "../Student/Students";              // sửa đường dẫn
+import { getActiveStudentsNotInClass } from "../Student/Students";
+import { getClass } from "../Class/classes"; // sửa đường dẫn
 
 export default function ClassAvailableStudentsPage() {
     const { classId } = useParams();
     const navigate = useNavigate();
-
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
     const [selected, setSelected] = useState(new Set());
-
+    const [classInfo, setClassInfo] = useState(null);
     const tableRef = useRef(null);
     const dtRef = useRef(null);
 
@@ -46,6 +46,9 @@ export default function ClassAvailableStudentsPage() {
         (async () => {
             try {
                 const data = await getActiveStudentsNotInClass(classId);
+                const cls = await getClass(classId);
+                const ClassName = cls?.ClassName ?? cls?.className;
+                setClassInfo({ classId, ClassName });
                 if (!alive) return;
                 const arr = Array.isArray(data) ? data : [];
                 setRows(arr.map((x, i) => normalize(x, i)));
@@ -125,9 +128,10 @@ export default function ClassAvailableStudentsPage() {
     const handleAddOne = async (id) => {
         try {
             await addStudentToClass(classId, id);
+            const cls = await getClass(classId); 
             navigate("/classes", {
                 replace: true,
-                state: { flash: `Đã thêm 1 học viên vào lớp #${classId}` },
+                state: { flash: `Đã thêm 1 học viên vào lớp ${cls.className}` },
             });
         } catch (e) {
             alert(e?.message || "Thêm học viên thất bại");
@@ -138,10 +142,11 @@ export default function ClassAvailableStudentsPage() {
         if (selected.size === 0) return;
         try {
             const count = selected.size;
+            const cls = await getClass(classId); 
             await addStudentsToClassBatch(classId, Array.from(selected));
             navigate("/classes", {
                 replace: true,
-                state: { flash: `Đã thêm ${count} học viên vào lớp #${classId}` },
+                state: { flash: `Đã thêm ${count} học viên vào lớp ${cls.className}` },
             });
         } catch (e) {
             alert(e?.message || "Thêm hàng loạt thất bại");
@@ -151,7 +156,7 @@ export default function ClassAvailableStudentsPage() {
     return (
         <>
             <section className="content-header">
-                <h1>Học viên chưa thuộc lớp #{classId}</h1>
+                <h1>Học viên chưa thuộc lớp   {classInfo?.ClassName }</h1>
                 <ol className="breadcrumb">
                     <li>
                         <a href="#">

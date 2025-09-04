@@ -32,9 +32,12 @@ import EditSessionPage from "./Template/Session/EditSessionPage.jsx";
 import SessionAttendancePage from "./Template/Session/SessionAttendancePage.jsx";
 
 import ProfilePage from "./Template/Profile/ProfilePage";
+import ReportsDashboardPage from "./Template/Reports/ReportsDashboardPage.jsx";
 
 // Nếu đã tách monthly calendar
 import MonthlyCalendar from "./component/MonthlyCalendar";
+import AttendanceExportPage from "./Template/Reports/AttendanceExportPage.jsx";
+
 
 export default function App() {
     return (
@@ -60,6 +63,23 @@ export default function App() {
                                 </>
                             }
                         />
+                        <Route
+                            path="reports"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <ReportsDashboardPage />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="reports/export-attendance"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <AttendanceExportPage />
+                                </RequireRole>
+                            }
+                        />
+
                         {/* Students */}
                         <Route path="students" element={<StudentsPage />} />
                         <Route
@@ -108,7 +128,7 @@ export default function App() {
                         <Route
                             path="classes/:classId/students"
                             element={
-                                <RequireRole roles={["Admin"]}>
+                                <RequireRole >
                                     <ClassStudentsInClassPage />
                                 </RequireRole>
                             }
@@ -154,7 +174,7 @@ export default function App() {
                         <Route
                             path="sessions/:id/attendance"
                             element={
-                                <RequireRole roles={["Teacher"]}>
+                                <RequireRole >
                                     <SessionAttendancePage />
                                 </RequireRole>
                             }

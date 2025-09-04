@@ -1,9 +1,11 @@
 ﻿// Program.cs
 using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Services;
-using Microsoft.EntityFrameworkCore;
+using ArtCenterOnline.Server.Services.Reports;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Reflection.Emit;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -49,6 +51,17 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly", p => p.RequireRole("Admin"));
     options.AddPolicy("TeacherOnly", p => p.RequireRole("Teacher"));
 });
+builder.Services.AddScoped<ArtCenterOnline.Server.Services.Reports.IReportsService,
+                           ArtCenterOnline.Server.Services.Reports.ReportsService>();
+
+builder.Services.AddScoped<
+    ArtCenterOnline.Server.Services.Reports.IAttendanceExportService,
+    ArtCenterOnline.Server.Services.Reports.AttendanceExportService>();
+
+builder.Services.AddScoped<ArtCenterOnline.Server.Services.ITeacherScheduleValidator,
+                           ArtCenterOnline.Server.Services.TeacherScheduleValidator>();
+
+builder.Services.AddScoped<IStudentScheduleValidator, StudentScheduleValidator>();
 
 // CORS cho Vite (http://localhost:5173)
 const string AllowClient = "_allowClient";
@@ -59,6 +72,14 @@ builder.Services.AddCors(options =>
          .AllowAnyHeader()
          .AllowAnyMethod());
 });
+builder.Services.Configure<AutoAbsentOptions>(
+    builder.Configuration.GetSection("AutoAbsent")); // tuỳ chọn, có thể không cần section -> dùng default
+
+builder.Services.AddHostedService<SessionAutoAbsentService>();
+
+builder.Services.AddScoped<ArtCenterOnline.Server.Services.IStudentLifecycleService,
+                           ArtCenterOnline.Server.Services.StudentLifecycleService>();
+
 
 // ========== App pipeline ==========
 var app = builder.Build();

@@ -118,20 +118,46 @@ export async function syncMonth(classId, year, month) {
  * - Admin: được cập nhật
  * - Teacher: KHÔNG được cập nhật (chặn từ FE)
  */
-export async function updateSession(sessionId, patch) {
-    if (!isAdmin() && isTeacher()) {
-        const err = new Error("Bạn không có quyền cập nhật buổi dạy.");
-        err.status = 403;
-        throw err;
-    }
-    const { data } = await http.patch(`${BASE}/${sessionId}`, patch || {});
-    return data ?? { ok: true };
+function enrich(err) {
+    const res = err?.response;
+    err.userMessage =
+        res?.data?.message ??
+        res?.data?.detail ??
+        res?.data?.title ??
+        (typeof res?.data === "string" ? res.data : null) ??
+        err.message;
+    return err;
 }
 
+export async function updateSession(sessionId, patch) {
+    const u = readAuth()?.user;
+    const roles = (u?.roles || []).map(x => String(x).toLowerCase());
+    const isAdmin = roles.includes("admin");
+    const isTeacher = roles.includes("teacher");
+
+    if (!isAdmin && isTeacher) {
+        const e = new Error("Bạn không có quyền cập nhật buổi dạy.");
+        e.status = 403;
+        throw e;
+    }
+
+    try {
+        const { data } = await http.patch(`/ClassSessions/${sessionId}`, patch || {});
+        return data ?? { ok: true };
+    } catch (err) {
+        throw enrich(err);
+    }
+}
 /**
  * Lấy chi tiết 1 session.
  */
 export async function getSession(sessionId) {
     const { data } = await http.get(`${BASE}/${sessionId}`);
     return data;
+}
+// Kiểm tra trùng học sinh khi SỬA BUỔI
+export async function checkStudentOverlapForSession(sessionId, patch) {
+    // patch: { SessionDate: "yyyy-MM-dd", StartTime: "HH:mm"|"HH:mm:ss", EndTime: "HH:mm"|"HH:mm:ss", ... }
+    const { data } = await http.post(`/ClassSessions/${sessionId}/check-student-overlap`, patch || {});
+    return Array.isArray(data) ? data : [];
 }
