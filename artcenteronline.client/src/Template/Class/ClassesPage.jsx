@@ -104,12 +104,12 @@ export default function ClassesPage() {
                 aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
-                { targets: 0, width: 80 },   // ID
-                { targets: 2, width: 140 },  // Chi nhánh
-                { targets: 3, width: 180 },  // GV chính
-                { targets: 4, width: 120 },  // Trạng thái
-                { targets: 5, width: 220 },  // Lịch học
-                { targets: 6, width: 280 },  // Hành động
+                { targets: 0, width: 10 },   // ID
+                { targets: 1, width: 80 }, //tên lớp
+                { targets: 2, width: 80},  // Chi nhánh
+                { targets: 3, width: 80},  // Trạng thái
+                { targets: 4, width: 80 },  // Lịch học
+                { targets: 5, width: 150 },  // Hành động
             ],
         });
 
@@ -173,7 +173,6 @@ export default function ClassesPage() {
                                             <th>#</th>
                                             <th>Tên lớp</th>
                                             <th>Chi nhánh</th>
-                                            <th>Giáo viên chính</th>
                                             <th>Trạng thái</th>
                                             <th>Lịch học</th>
                                             <th>Hành động</th>
@@ -184,8 +183,7 @@ export default function ClassesPage() {
                                             <tr key={x.classID}>
                                                 <td>{x.classID}</td>
                                                 <td>{x.className}</td>
-                                                <td>{x.branch ?? "-"}</td>
-                                                <td>{x.mainTeacherName ?? "-"}</td>
+                                                <td>{x.branch ?? "-"}</td>                                       
                                                 <td>
                                                     {x.status === 1 ? (
                                                         <span className="label label-success">Đang mở</span>

@@ -189,7 +189,7 @@ export default function ClassStudentsInClassPage() {
                                                 <td>{r.joinedDate}</td>
                                                 <td>
                                                     <span className={`label ${r.isActive ? "label-success" : "label-default"}`}>
-                                                        {r.isActive ? "Active" : "Inactive"}
+                                                        {r.isActive ? "Đang học" : "Ngừng học"}
                                                     </span>
                                                 </td>
                                                 <td>

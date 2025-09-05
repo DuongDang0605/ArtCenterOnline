@@ -106,8 +106,26 @@ export default function ReportsDashboardPage() {
         const dThis = toDict(data?.attendanceSeries ?? []);
         const dPrev = toDict(data?.attendanceSeriesPrev ?? []);
 
+        // Giới hạn "Tháng này" chỉ tới ngày hiện tại nếu cùng tháng/năm
+        const now = new Date();
+        const nowY = now.getFullYear();
+        const nowM = now.getMonth() + 1;
+        const nowD = now.getDate();
+
+        const selFirst = new Date(y, (m || 1) - 1, 1);
+        const curFirst = new Date(nowY, nowM - 1, 1);
+
+        const isCurrentMonth = (y === nowY && m === nowM);
+        const isFutureMonth = selFirst > curFirst;
+
+        const maxDayThis = isCurrentMonth ? nowD : (isFutureMonth ? 0 : daysInMonth);
+
         // đủ độ dài theo số ngày của tháng
-        const yThis = Array.from({ length: daysInMonth }, (_, i) => (dThis[i + 1] ?? NaN));
+        const yThis = Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            // chỉ hiển thị tới ngày hiện tại, còn lại là NaN để không vẽ
+            return day <= maxDayThis ? (dThis[day] ?? NaN) : NaN;
+        });
         const yPrev = Array.from({ length: daysInMonth }, (_, i) => (dPrev[i + 1] ?? NaN));
 
         window._attChart = new Chart(el, {
@@ -149,6 +167,7 @@ export default function ReportsDashboardPage() {
                             title: (items) => `Ngày ${items[0].label}`,
                             label: (item) => `${item.dataset.label}: ${Number(item.parsed.y).toFixed(1)}%`,
                         },
+                        // Chart.js tự ẩn tooltip cho điểm NaN, không cần lọc thêm
                     },
                 },
                 scales: {
@@ -159,6 +178,7 @@ export default function ReportsDashboardPage() {
         });
     }, [data, month]);
 
+
     // 2) Biểu đồ cột: Số buổi trong tháng (hoàn thành / hủy) — tháng này và tháng trước
     useEffect(() => {
         if (!data) return;
@@ -167,10 +187,10 @@ export default function ReportsDashboardPage() {
 
         if (window._sessionsBar) { window._sessionsBar.destroy(); window._sessionsBar = null; }
 
-        const doneThis = Number(data?.sessionsThisMonth ?? 0) - Number(data?.sessionsCanceled ?? 0);
+        const doneThis = Number(data?.sessionsThisMonth ?? 0) ;
         const cancelThis = Number(data?.sessionsCanceled ?? 0);
 
-        const donePrev = Number(data?.sessionsThisMonthPrev ?? 0) - Number(data?.sessionsCanceledPrev ?? 0);
+        const donePrev = Number(data?.sessionsThisMonthPrev ?? 0) ;
         const cancelPrev = Number(data?.sessionsCanceledPrev ?? 0);
 
         window._sessionsBar = new Chart(el, {
@@ -372,7 +392,7 @@ export default function ReportsDashboardPage() {
                         <div className="col-lg-6">
                             <div className="box chart-box chart-box--small">
                                 <div className="box-header with-border">
-                                    <h3 className="box-title">Tỉ lệ điểm danh (cả tháng)</h3>
+                                    <h3 className="box-title">Tỉ lệ điểm danh (tính đến hôm nay)</h3>
                                 </div>
                                 <div className="box-body">
                                     <div className="pie-wrap">

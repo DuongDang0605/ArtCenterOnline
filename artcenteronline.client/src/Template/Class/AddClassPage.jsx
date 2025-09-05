@@ -1,4 +1,5 @@
-﻿// src/Template/Class/AddClassPage.jsx
+﻿/* eslint-disable no-unused-vars */
+// src/Template/Class/AddClassPage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { createClass } from "./classes";
@@ -110,21 +111,7 @@ export default function AddClassPage() {
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Giáo viên dạy chính</label>
-                                <div className="col-sm-10">
-                                    <select className="form-control" name="mainTeacherId"
-                                        value={form.mainTeacherId} onChange={onChange}>
-                                        <option value="">-- Chưa gán --</option>
-                                        {teachers.map(t => (
-                                            <option key={t.teacherId} value={t.teacherId}>
-                                                {t.teacherName} {t.phoneNumber ? `(${t.phoneNumber})` : ""}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <p className="help-block">Mỗi lớp có 1 giáo viên chính. Có thể đổi sau tại trang Edit.</p>
-                                </div>
-                            </div>
+                           
                         </div>
 
                         <div className="box-footer">
