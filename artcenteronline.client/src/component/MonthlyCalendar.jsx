@@ -97,13 +97,16 @@ export default function MonthlyCalendar() {
                 // 2) lấy buổi học cho từng lớp trong tháng (ignore lỗi từng lớp)
                 const settled = await Promise.allSettled(
                     cls.map(async (c) => {
-                        const arr = await listSessions(c.classID, first, last, {
+                        const arr = await listSessions({
+                            classId: Number(c.classID ?? c.ClassID ?? c.id),
+                            from: ymd(first),
+                            to: ymd(last),
                             forCalendar: true,
-                        }); // sessions.js format yyyy-MM-dd
+                        });
                         return arr.map((s) => ({
                             date: s.sessionDate, // "yyyy-MM-dd"
-                            classId: Number(c.classID),
-                            className: c.className,
+                            classId: Number(c.classID ?? c.ClassID ?? c.id),
+                            className: c.className ?? c.ClassName ?? "",
                             startTime: s.startTime, // "HH:mm"
                             endTime: s.endTime,
                             teacherName: s.teacherName || null,
@@ -179,8 +182,8 @@ export default function MonthlyCalendar() {
                     >
                         <option value="all">Tất cả lớp</option>
                         {classes.map((c) => (
-                            <option key={c.classID} value={String(c.classID)}>
-                                {c.className}
+                            <option key={c.classID ?? c.ClassID ?? c.id} value={String(c.classID ?? c.ClassID ?? c.id)}>
+                                {c.className ?? c.ClassName ?? "(không tên)"}
                             </option>
                         ))}
                     </select>
@@ -228,13 +231,16 @@ export default function MonthlyCalendar() {
                                                 : items.filter(
                                                     (it) => it.classId === Number(selectedClassId)
                                                 );
+                                        // Sắp xếp theo giờ bắt đầu trong ngày (HH:mm)
+                                        const filteredItemsSorted = [...filteredItems].sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
 
                                         return (
                                             <td
                                                 key={key}
                                                 style={{
                                                     verticalAlign: "top",
-                                                    background: isToday ? "#fff8d5" : inMonth ? "#fff" : "#f7f7f7",
+                                                    // Giữ nền trắng để "cam hôm nay" nhỏ lại (chỉ hiển thị nhãn nhỏ)
+                                                    background: inMonth ? "#fff" : "#f7f7f7",
                                                     minWidth: 180,
                                                     height: 130,
                                                     padding: 6,
@@ -249,25 +255,26 @@ export default function MonthlyCalendar() {
                                                 >
                                                     <span style={{ fontWeight: 600 }}>{d.getDate()}</span>
                                                     {isToday && (
-                                                        <span className="label label-warning">Hôm nay</span>
+                                                        <span className="label label-warning" style={{ lineHeight: 1 }}>
+                                                            Hôm nay
+                                                        </span>
                                                     )}
                                                 </div>
 
                                                 <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
-                                                    {filteredItems.length === 0 && (
+                                                    {filteredItemsSorted.length === 0 && (
                                                         <span className="text-muted small">—</span>
                                                     )}
 
                                                     {/* Hiện TẤT CẢ buổi, không còn slice */}
-                                                    {filteredItems.map((it, idx) => {
+                                                    {filteredItemsSorted.map((it, idx) => {
                                                         const isCancelled = Number(it.status) === 2;
                                                         return (
                                                             <div
                                                                 key={idx}
                                                                 className="small"
                                                                 style={{
-                                                                    borderLeft: `3px solid ${isCancelled ? "#dd4b39" : "#3c8dbc"
-                                                                        }`, // đỏ nếu hủy
+                                                                    borderLeft: `3px solid ${isCancelled ? "#dd4b39" : "#3c8dbc"}`,
                                                                     paddingLeft: 6,
                                                                     opacity: isCancelled ? 0.7 : 1,
                                                                 }}

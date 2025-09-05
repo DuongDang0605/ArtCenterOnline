@@ -1,4 +1,5 @@
-﻿// src/Template/Class/EditClassPage.jsx
+﻿/* eslint-disable no-unused-vars */
+// src/Template/Class/EditClassPage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { getClass, updateClass } from "./classes";
@@ -166,21 +167,7 @@ export default function EditClassPage() {
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Giáo viên dạy chính</label>
-                                <div className="col-sm-10">
-                                    <select className="form-control" name="mainTeacherId"
-                                        value={form.mainTeacherId} onChange={onChange}>
-                                        <option value="">-- Chưa gán --</option>
-                                        {teachers.map(t => (
-                                            <option key={t.teacherId} value={t.teacherId}>
-                                                {t.teacherName} {t.phoneNumber ? `(${t.phoneNumber})` : ""}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <p className="help-block">Đổi giáo viên chính không làm thay đổi các buổi đã chỉnh tay.</p>
-                                </div>
-                            </div>
+
                         </div>
 
                         <div className="box-footer">

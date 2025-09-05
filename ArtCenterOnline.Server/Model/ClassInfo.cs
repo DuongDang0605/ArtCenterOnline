@@ -10,8 +10,6 @@ public class ClassInfo
 
 
     // 👉 NEW
-    public int? MainTeacherId { get; set; }
-    public TeacherInfo? MainTeacher { get; set; }
 
 
     public ICollection<ClassStudent> ClassStudents { get; set; } = new List<ClassStudent>();

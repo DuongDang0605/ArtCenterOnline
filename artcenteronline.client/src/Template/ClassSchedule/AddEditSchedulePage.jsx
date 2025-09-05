@@ -1,7 +1,12 @@
 ﻿// src/Template/ClassSchedule/AddEditSchedulePage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createSchedule, getSchedule, updateSchedule, checkStudentOverlapForSchedule } from "./schedules";
+import {
+    createSchedule,
+    getSchedule,
+    updateSchedule,
+    checkStudentOverlapForSchedule,
+} from "./schedules";
 import OverlapWarningModal from "../../component/OverlapWarningModal";
 
 const VI_DOW = [
@@ -14,26 +19,33 @@ const VI_DOW = [
     { v: 6, t: "Thứ 7" },
 ];
 
-function todayYMD() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${dd}`;
-}
-function endOfMonthYMD(fromStr) {
-    const [y, m] = fromStr.split("-").map(Number);
-    const last = new Date(y, m, 0); // day 0 of next month = last day current month
-    const yy = last.getFullYear();
-    const mm = String(last.getMonth() + 1).padStart(2, "0");
-    const dd = String(last.getDate()).padStart(2, "0");
-    return `${yy}-${mm}-${dd}`;
+// (tuỳ chọn) nạp danh sách GV động để không vỡ import khi thiếu module
+let fetchTeachers = async () => [];
+try {
+    const modPromise = import("../Teacher/teachers");
+    fetchTeachers = async () => {
+        try {
+            const mod = await modPromise;
+            return typeof mod.getTeachers === "function" ? mod.getTeachers() : [];
+        } catch {
+            return [];
+        }
+    };
+} catch { /* ignore */ }
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function toTimeInput(s) {
+    if (!s) return "";
+    const m = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(s);
+    if (m) return `${m[1]}:${m[2]}`;
+    const d = new Date(`1970-01-01T${s}`);
+    if (isNaN(d)) return "";
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-export default function AddEditSchedulePage({ mode = "create" }) {
+export default function AddEditSchedulePage() {
     const { classId, id } = useParams();
-    const navigate = useNavigate();
-    const isEdit = mode === "edit";
+    const nav = useNavigate();
 
     const [form, setForm] = useState({
         classID: Number(classId),
@@ -42,181 +54,179 @@ export default function AddEditSchedulePage({ mode = "create" }) {
         endTime: "20:00",
         note: "",
         isActive: true,
+        teacherId: "",
     });
+    const [teachers, setTeachers] = useState([]);
 
-    const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
-
-    // Cảnh báo trùng học sinh
-    const [warnOpen, setWarnOpen] = useState(false);
     const [warnings, setWarnings] = useState([]);
-    const [pendingPayload, setPendingPayload] = useState(null);
 
-    // nạp dữ liệu khi edit
+    // ==== Toast lỗi tự ẩn + clear khi đổi field ====
+    const AUTO_DISMISS = 5000; // ms
+    const errTimerRef = useRef(null);
+
+    const showError = (msg) => {
+        if (errTimerRef.current) {
+            clearTimeout(errTimerRef.current);
+            errTimerRef.current = null;
+        }
+        setErr(msg || "");
+        if (msg) {
+            errTimerRef.current = setTimeout(() => {
+                setErr("");
+                errTimerRef.current = null;
+            }, AUTO_DISMISS);
+        }
+    };
+
     useEffect(() => {
-        if (!isEdit) return;
+        return () => { if (errTimerRef.current) clearTimeout(errTimerRef.current); };
+    }, []);
+
+    useEffect(() => {
+        let alive = true;
         (async () => {
             try {
-                const data = await getSchedule(id);
-                setForm({
-                    classID: data.classID,
-                    dayOfWeek: data.dayOfWeek,
-                    startTime: (data.startTime || "").slice(0, 5), // "HH:mm"
-                    endTime: (data.endTime || "").slice(0, 5),
-                    note: data.note || "",
-                    isActive: !!data.isActive,
-                });
+                const ts = await fetchTeachers();
+                if (alive) setTeachers(Array.isArray(ts) ? ts : []);
+                if (id) {
+                    const data = await getSchedule(id);
+                    if (!alive) return;
+                    setForm({
+                        classID: data.classID ?? data.ClassID ?? Number(classId),
+                        dayOfWeek: data.dayOfWeek ?? data.DayOfWeek ?? 1,
+                        startTime: (data.startTime || data.StartTime || "").slice(0, 5) || "18:00",
+                        endTime: (data.endTime || data.EndTime || "").slice(0, 5) || "20:00",
+                        note: data.note || data.Note || "",
+                        isActive: !!(data.isActive ?? data.IsActive ?? true),
+                        teacherId: data.teacherId ?? data.TeacherId ?? "",
+                    });
+                }
             } catch (e) {
-                const res = e?.response;
-                const msg =
-                    e?.userMessage ||
-                    res?.data?.message ||
-                    res?.data?.detail ||
-                    res?.data?.title ||
-                    (typeof res?.data === "string" ? res.data : null) ||
-                    e?.message ||
-                    "Không thể tải dữ liệu.";
-                setErr(String(msg));
+                showError(e?.response?.data?.message || e.message || "Lỗi tải dữ liệu.");
             } finally {
                 setLoading(false);
             }
         })();
-    }, [id, isEdit]);
+        return () => { alive = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, classId]);
 
     const onChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setForm((f) => ({
-            ...f,
-            [name]:
-                type === "checkbox" ? checked : name === "dayOfWeek" ? Number(value) : value,
-        }));
+        setForm((f) => ({ ...f, [name]: type === "checkbox" ? !!checked : value }));
+        if (err) showError(""); // đổi gì cũng clear lỗi
     };
 
-    const validate = () => {
-        const s = form.startTime;
-        const e = form.endTime;
-        if (!s || !e) return "Giờ bắt đầu/kết thúc không hợp lệ.";
-        // so sánh "HH:mm"
-        if (e <= s) return "Giờ kết thúc phải lớn hơn giờ bắt đầu.";
+    function validate() {
+        if (!form.dayOfWeek && form.dayOfWeek !== 0) return "Vui lòng chọn thứ.";
+        if (form.teacherId === "" || form.teacherId == null) return "Vui lòng chọn giáo viên.";
+        const s = new Date(`1970-01-01T${toTimeInput(form.startTime)}:00`);
+        const e = new Date(`1970-01-01T${toTimeInput(form.endTime)}:00`);
+        if (!(s < e)) return "Giờ kết thúc phải lớn hơn giờ bắt đầu.";
         return "";
-    };
+    }
 
-    const onSubmit = async (ev) => {
+    async function onSubmit(ev) {
         ev.preventDefault();
-        setErr("");
+        showError("");
 
         const v = validate();
-        if (v) return setErr(v);
+        if (v) return showError(v);
 
-        // payload chuẩn cho CREATE/UPDATE
         const payload = {
-            ...form,
-            startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime, // "HH:mm:ss"
+            classID: Number(form.classID),
+            dayOfWeek: Number(form.dayOfWeek),
+            startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime,
             endTime: form.endTime.length === 5 ? form.endTime + ":00" : form.endTime,
+            note: form.note?.trim() || "",
+            isActive: !!form.isActive,
+            teacherId: form.teacherId === "" ? null : Number(form.teacherId),
         };
 
         try {
-            // 1) Chỉ preflight khi EDIT (endpoint BE theo id)
-            if (isEdit) {
-                const preflight = {
-                    // Dùng chữ hoa để khớp model BE, nhưng binder cũng case-insensitive
-                    ClassID: Number(form.classID ?? classId),
-                    DayOfWeek: Number(form.dayOfWeek),
-                    StartTime: payload.startTime,
-                    EndTime: payload.endTime,
-                    Note: form.note || null,
-                    IsActive: !!form.isActive,
-                };
-                const from = todayYMD();
-                const to = endOfMonthYMD(from);
-                const list = await checkStudentOverlapForSchedule(Number(id), preflight, { from, to });
-                if (list.length > 0) {
-                    setWarnings(list);
-                    setPendingPayload(payload);
-                    setWarnOpen(true);
-                    return; // dừng lại, chờ xác nhận
+            setSaving(true);
+
+            // cảnh báo trùng học sinh khi EDIT (giữ flow cũ)
+            if (id) {
+                const warn = await checkStudentOverlapForSchedule(id);
+                if (Array.isArray(warn) && warn.length) {
+                    setWarnings(warn);
+                    setSaving(false);
+                    return;
                 }
             }
 
-            // 2) Không có cảnh báo (hoặc create) → lưu luôn
-            setSaving(true);
-            if (isEdit) {
+            if (id) {
                 await updateSchedule(id, payload);
-                navigate(`/classes/${classId}/schedules`, {
-                    state: { success: "Cập nhật lịch học thành công!" },
-                    replace: true,
-                });
+                nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã cập nhật lịch học." } });
             } else {
                 await createSchedule(payload);
-                navigate(`/classes/${classId}/schedules`, {
-                    state: { success: "Tạo lịch học thành công!" },
-                    replace: true,
-                });
+                nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã thêm lịch học mới." } });
             }
         } catch (e) {
             const res = e?.response;
-            let msg =
-                e?.userMessage ||
+            const msg =
                 res?.data?.message ||
                 res?.data?.detail ||
                 res?.data?.title ||
                 (typeof res?.data === "string" ? res.data : null) ||
-                e?.message;
-
-            // gom lỗi ModelState nếu có
-            if (!e?.userMessage && res?.data?.errors && typeof res.data.errors === "object") {
-                const lines = [];
-                for (const [field, arr] of Object.entries(res.data.errors)) {
-                    (arr || []).forEach((x) => lines.push(`${field}: ${x}`));
-                }
-                if (lines.length) msg = lines.join("\n");
-            }
-            setErr(String(msg || "Không thể lưu. Vui lòng thử lại."));
+                e?.message ||
+                "Có lỗi xảy ra khi lưu.";
+            showError(String(msg));
         } finally {
             setSaving(false);
         }
-    };
+    }
+
+    if (loading) {
+        return (
+            <>
+                <section className="content">
+                    <div className="box">
+                        <div className="box-body">Đang tải…</div>
+                    </div>
+                </section>
+
+                {err && (
+                    <div
+                        className="alert alert-danger"
+                        style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                    >
+                        <button type="button" className="close" onClick={() => showError("")}><span aria-hidden="true">&times;</span></button>
+                        {err}
+                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {AUTO_DISMISS / 1000}s</div>
+                    </div>
+                )}
+            </>
+        );
+    }
 
     return (
         <>
+            {/* KHÔNG bọc content bằng .content-wrapper nữa (Layout đã có sẵn) */}
             <section className="content-header">
-                <h1>{isEdit ? "Sửa lịch học" : "Thêm lịch học"} · Lớp #{classId}</h1>
+                <h1>{id ? "Sửa lịch học" : "Thêm lịch học"}</h1>
                 <ol className="breadcrumb">
-                    <li>
-                        <a href="#">
-                            <i className="fa fa-dashboard" /> Home
-                        </a>
-                    </li>
-                    <li>
-                        <Link to="/classes">Class</Link>
-                    </li>
-                    <li>
-                        <Link to={`/classes/${classId}/schedules`}>Schedules</Link>
-                    </li>
-                    <li className="active">{isEdit ? "Edit" : "New"}</li>
+                    <li><Link to="/">Trang chủ</Link></li>
+                    <li><Link to={`/classes/${form.classID}/schedules`}>Lịch học</Link></li>
+                    <li className="active">{id ? "Sửa" : "Thêm"}</li>
                 </ol>
             </section>
 
             <section className="content">
                 <div className="box box-primary">
-                    <div className="box-header with-border">
-                        <h3 className="box-title">{isEdit ? "Cập nhật" : "Tạo mới"}</h3>
-                    </div>
+                    <form onSubmit={onSubmit}>
+                        <div className="box-header with-border">
+                            <h3 className="box-title">Thông tin lịch</h3>
+                        </div>
 
-                    <form onSubmit={onSubmit} noValidate>
                         <div className="box-body">
-                            {loading && <p className="text-muted">Đang tải…</p>}
-
-                            {err && (
-                                <div className="alert alert-danger" role="alert" style={{ fontSize: "16px", fontWeight: "bold" }}>
-                                    <i className="fa fa-exclamation-circle" style={{ marginRight: 6 }} />
-                                    <span style={{ whiteSpace: "pre-wrap" }}>{err}</span>
-                                </div>
-                            )}
-
-                            {!loading && (
-                                <>
+                            <div className="row">
+                                {/* Thứ */}
+                                <div className="col-sm-4">
                                     <div className="form-group">
                                         <label>Thứ trong tuần</label>
                                         <select
@@ -226,118 +236,138 @@ export default function AddEditSchedulePage({ mode = "create" }) {
                                             onChange={onChange}
                                             required
                                         >
-                                            {VI_DOW.map((o) => (
-                                                <option key={o.v} value={o.v}>
-                                                    {o.t}
-                                                </option>
+                                            {VI_DOW.map((d) => (
+                                                <option key={d.v} value={d.v}>{d.t}</option>
                                             ))}
                                         </select>
                                     </div>
+                                </div>
 
-                                    <div className="row">
-                                        <div className="col-xs-6">
-                                            <div className="form-group">
-                                                <label>Giờ bắt đầu</label>
-                                                <input
-                                                    type="time"
-                                                    className="form-control"
-                                                    name="startTime"
-                                                    value={form.startTime}
-                                                    onChange={onChange}
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="col-xs-6">
-                                            <div className="form-group">
-                                                <label>Giờ kết thúc</label>
-                                                <input
-                                                    type="time"
-                                                    className="form-control"
-                                                    name="endTime"
-                                                    value={form.endTime}
-                                                    onChange={onChange}
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
+                                {/* Giáo viên */}
+                                <div className="col-sm-4">
                                     <div className="form-group">
-                                        <label>Ghi chú</label>
-                                        <input
-                                            type="text"
+                                        <label>Giáo viên</label>
+                                        <select
+                                            name="teacherId"
                                             className="form-control"
-                                            name="note"
-                                            value={form.note}
+                                            value={form.teacherId}
                                             onChange={onChange}
-                                            placeholder="Phòng A101 / Online..."
+                                            required
+                                        >
+                                            <option value="">-- Chọn giáo viên --</option>
+                                            {teachers.map((t) => {
+                                                const idv = t.teacherId ?? t.TeacherId;
+                                                const name = t.teacherName ?? t.fullName ?? t.FullName ?? `(GV #${idv})`;
+                                                return <option key={idv} value={idv}>{name}</option>;
+                                            })}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Giờ */}
+                                <div className="col-sm-2">
+                                    <div className="form-group">
+                                        <label>Giờ bắt đầu</label>
+                                        <input
+                                            className="form-control"
+                                            type="time"
+                                            name="startTime"
+                                            value={toTimeInput(form.startTime)}
+                                            onChange={onChange}
+                                            required
                                         />
                                     </div>
+                                </div>
 
-                                    <div className="checkbox">
-                                        <label>
-                                            <input
-                                                type="checkbox"
-                                                name="isActive"
-                                                checked={form.isActive}
-                                                onChange={onChange}
-                                            />{" "}
-                                            Đang áp dụng (Active)
-                                        </label>
+                                <div className="col-sm-2">
+                                    <div className="form-group">
+                                        <label>Giờ kết thúc</label>
+                                        <input
+                                            className="form-control"
+                                            type="time"
+                                            name="endTime"
+                                            value={toTimeInput(form.endTime)}
+                                            onChange={onChange}
+                                            required
+                                        />
                                     </div>
-                                </>
-                            )}
+                                </div>
+                            </div>
+
+                            {/* Ghi chú + kích hoạt */}
+                            <div className="form-group">
+                                <label>Ghi chú</label>
+                                <input className="form-control" name="note" value={form.note} onChange={onChange} />
+                            </div>
+
+                            <div className="checkbox">
+                                <label>
+                                    <input type="checkbox" name="isActive" checked={!!form.isActive} onChange={onChange} /> Kích hoạt
+                                </label>
+                            </div>
                         </div>
 
                         <div className="box-footer">
-                            <button type="submit" className="btn btn-primary" disabled={saving || loading}>
-                                <i className="fa fa-save" /> {saving ? "Đang lưu..." : "Lưu"}
+                            <button type="submit" className="btn btn-primary" disabled={saving}>
+                                <i className="fa fa-save" /> Lưu
                             </button>
-                            <Link
-                                to={`/classes/${classId}/schedules`}
-                                className="btn btn-default"
-                                style={{ marginLeft: 8 }}
-                                onClick={(e) => saving && e.preventDefault()}
-                            >
-                                Huỷ
+                            <Link to={`/classes/${form.classID}/schedules`} className="btn btn-default" style={{ marginLeft: 10 }}>
+                                Hủy
                             </Link>
                         </div>
                     </form>
                 </div>
             </section>
 
-            {/* Modal cảnh báo trùng học sinh (EDIT) */}
-            <OverlapWarningModal
-                open={warnOpen}
-                warnings={warnings}
-                title="Cảnh báo trùng học sinh (lịch mẫu)"
-                onCancel={() => setWarnOpen(false)}
-                onConfirm={async () => {
-                    try {
-                        setSaving(true);
-                        await updateSchedule(id, pendingPayload || {});
-                        setWarnOpen(false);
-                        navigate(`/classes/${classId}/schedules`, {
-                            state: { success: "Cập nhật lịch học thành công!" },
-                            replace: true,
-                        });
-                    } catch (e) {
-                        const res = e?.response;
-                        const msg =
-                            e?.userMessage ||
-                            res?.data?.message ||
-                            res?.data?.detail ||
-                            res?.data?.title ||
-                            (typeof res?.data === "string" ? res.data : null) ||
-                            e?.message ||
-                            "Có lỗi xảy ra khi lưu.";
-                        setErr(String(msg));
-                    } finally {
-                        setSaving(false);
-                    }
-                }}
-            />
+            {/* Toast lỗi nổi (tự ẩn sau 5s) */}
+            {err && (
+                <div
+                    className="alert alert-danger"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={() => showError("")} aria-label="Close" style={{ marginLeft: 8 }}>
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    {err}
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {AUTO_DISMISS / 1000}s</div>
+                </div>
+            )}
+
+            {/* Modal cảnh báo học sinh trùng (giữ flow cũ) */}
+            {warnings.length > 0 && (
+                <OverlapWarningModal
+                    open
+                    title="Cảnh báo trùng học sinh"
+                    warnings={warnings}
+                    onCancel={() => setWarnings([])}
+                    onConfirm={async () => {
+                        setWarnings([]);
+                        try {
+                            setSaving(true);
+                            const payload = {
+                                classID: Number(form.classID),
+                                dayOfWeek: Number(form.dayOfWeek),
+                                startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime,
+                                endTime: form.endTime.length === 5 ? form.endTime + ":00" : form.endTime,
+                                note: form.note?.trim() || "",
+                                isActive: !!form.isActive,
+                                teacherId: form.teacherId === "" ? null : Number(form.teacherId),
+                            };
+                            if (id) {
+                                await updateSchedule(id, payload);
+                                nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã cập nhật lịch học." } });
+                            } else {
+                                await createSchedule(payload);
+                                nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã thêm lịch học mới." } });
+                            }
+                        } catch (e) {
+                            showError(e?.response?.data?.message || e.message || "Có lỗi xảy ra khi lưu.");
+                        } finally {
+                            setSaving(false);
+                        }
+                    }}
+                />
+            )}
         </>
     );
 }

@@ -22,13 +22,13 @@ namespace ArtCenterOnline.Server.Services.Reports
         public async Task<(byte[] content, string fileName, string contentType)> ExportAttendanceMatrixAsync(
             AttendanceExportQuery q, CancellationToken ct = default)
         {
-            // 1) Lấy thông tin lớp + GV chính
+            // 1) Lấy thông tin lớp
             var cls = await _ctx.Classes
-                .Include(c => c.MainTeacher)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(c => c.ClassID == q.ClassId, ct)
                 ?? throw new InvalidOperationException($"Không tìm thấy lớp #{q.ClassId}");
 
-            // 2) Lấy danh sách buổi trong range
+            // 2) Lấy danh sách buổi trong range (kèm TeacherId để lấy tên GV)
             var sessions = await _ctx.ClassSessions
                 .Where(s => s.ClassID == q.ClassId
                          && s.SessionDate >= q.From && s.SessionDate <= q.To
@@ -40,9 +40,10 @@ namespace ArtCenterOnline.Server.Services.Reports
                     s.SessionId,
                     s.SessionDate,
                     s.StartTime,
-                    s.Status
+                    s.Status,
+                    s.TeacherId
                 })
-                .ToListAsync(ct);         
+                .ToListAsync(ct);
 
             // 3) Lấy attendance của các buổi
             var sessionIds = sessions.Select(s => s.SessionId).ToList();
@@ -76,6 +77,23 @@ namespace ArtCenterOnline.Server.Services.Reports
                 .GroupBy(x => x.StudentId)
                 .ToDictionary(g => g.Key, g => g.Max(x => x.SessionDate));
 
+            // 5b) Lấy tên giáo viên theo buổi (distinct)
+            var teacherIds = sessions.Where(s => s.TeacherId.HasValue).Select(s => s.TeacherId!.Value).Distinct().ToList();
+            var teacherNamesMap = teacherIds.Count == 0
+                ? new Dictionary<int, string>()
+                : await _ctx.Teachers
+                    .Where(t => teacherIds.Contains(t.TeacherId))
+                    .Select(t => new { t.TeacherId, t.TeacherName })
+                    .ToDictionaryAsync(x => x.TeacherId, x => x.TeacherName ?? string.Empty, ct);
+
+            string teachersHeader = teacherIds.Count == 0
+                ? ""
+                : string.Join(", ",
+                    sessions.Where(s => s.TeacherId.HasValue)
+                            .Select(s => s.TeacherId!.Value)
+                            .Distinct()
+                            .Select(id => teacherNamesMap.TryGetValue(id, out var n) && !string.IsNullOrWhiteSpace(n) ? n : $"GV #{id}"));
+
             // 6) Thống kê validate
             int colCount = sessions.Count;
             int cancelledCols = sessions.Count(s => s.Status == SessionStatus.Cancelled);
@@ -94,8 +112,8 @@ namespace ArtCenterOnline.Server.Services.Reports
             ws.Cell(row, 1).Value = "Mã lớp";
             ws.Cell(row, 2).Value = cls.ClassID;
             row++;
-            ws.Cell(row, 1).Value = "Giáo viên chính";
-            ws.Cell(row, 2).Value = cls.MainTeacher?.TeacherName ?? "";
+            ws.Cell(row, 1).Value = "Giáo viên (theo lịch)";
+            ws.Cell(row, 2).Value = teachersHeader;
             row++;
             ws.Cell(row, 1).Value = "Khoảng thời gian";
             ws.Cell(row, 2).Value = $"{q.From:yyyy-MM-dd} → {q.To:yyyy-MM-dd}";
@@ -118,8 +136,8 @@ namespace ArtCenterOnline.Server.Services.Reports
             for (int i = 0; i < sessions.Count; i++)
             {
                 var s = sessions[i];
-                string dayName = CultureInfo.GetCultureInfo("vi-VN").DateTimeFormat.GetAbbreviatedDayName(
-                    (DayOfWeek)((int)s.SessionDate.DayOfWeek));
+                string dayName = CultureInfo.GetCultureInfo("vi-VN").DateTimeFormat
+                    .GetAbbreviatedDayName((DayOfWeek)((int)s.SessionDate.DayOfWeek));
                 var title = $"{s.SessionDate:dd/MM} ({dayName})\n{s.StartTime:hh\\:mm}" +
                             (s.Status == SessionStatus.Cancelled ? " (Hủy)" : "");
                 ws.Cell(row, 3 + i).Value = title;
@@ -173,7 +191,6 @@ namespace ArtCenterOnline.Server.Services.Reports
                     }
                 }
                 row++;
-
             }
 
             // Footer cảnh báo

@@ -1,11 +1,12 @@
-﻿// src/Template/Session/EditSessionPage.jsx
-import React, { useEffect, useState } from "react";
+﻿/* eslint-disable no-unused-vars */
+// src/Template/Session/EditSessionPage.jsx
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { getSession, updateSession, checkStudentOverlapForSession } from "./sessions";
 import { getClasses } from "../Class/classes";
 import OverlapWarningModal from "../../component/OverlapWarningModal";
 
-// Chuẩn bị hàm lấy danh sách giáo viên (không dùng top-level await)
+// Lấy danh sách giáo viên
 let fetchTeachers = async () => [];
 try {
     const modPromise = import("../Teacher/teachers");
@@ -17,283 +18,283 @@ try {
             return [];
         }
     };
-} catch { /* ignore */ }
+} catch { /* empty */ }
 
-function toDateValue(yyyyMMdd) { return yyyyMMdd; } // server đã trả "yyyy-MM-dd"
+function pad2(n) { return String(n).padStart(2, "0"); }
+function toTimeInput(s) {
+    if (!s) return "";
+    const m = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(s);
+    if (m) return `${m[1]}:${m[2]}`;
+    const d = new Date(`1970-01-01T${s}`);
+    if (isNaN(d)) return "";
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+const toHHMMSS = (t) => `${toTimeInput(t)}:00`;
+const anyToISO = (v) => (v || "").slice(0, 10);
+const isoToDMY = (iso) => {
+    if (!iso) return "";
+    const [y, m, d] = String(iso).split("-");
+    return `${d}/${m}/${y}`;
+};
 
 export default function EditSessionPage() {
-    const { id } = useParams();                 // /sessions/:id/edit
-    const navigate = useNavigate();
+    const { id } = useParams();
+    const nav = useNavigate();
 
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState("");
-
-    const [info, setInfo] = useState(null);     // dữ liệu gốc
-    // eslint-disable-next-line no-unused-vars
+    const [info, setInfo] = useState({});
     const [classes, setClasses] = useState([]);
-    const [teachers, setTeachers] = useState([]);
 
-    // form state
-    const [sessionDate, setSessionDate] = useState("");
-    const [startTime, setStartTime] = useState("");
-    const [endTime, setEndTime] = useState("");
-    const [teacherId, setTeacherId] = useState(""); // "" => fallback main teacher
-    const [status, setStatus] = useState(0);        // 0 Planned, 1 Completed, 2 Cancelled, 3 NoShow, 4 Rescheduled
+    const [sessionDateISO, setSessionDateISO] = useState("");
+    const [sessionDateText, setSessionDateText] = useState("");
+
+    const [startTime, setStartTime] = useState("00:00:00");
+    const [endTime, setEndTime] = useState("00:00:00");
+    const [teacherId, setTeacherId] = useState("");
+    const [status, setStatus] = useState(0);
     const [note, setNote] = useState("");
 
-    // cảnh báo trùng học sinh
-    const [warnOpen, setWarnOpen] = useState(false);
-    const [warnings, setWarnings] = useState([]);
-    const [pendingPatch, setPendingPatch] = useState(null);
+    const [teachers, setTeachers] = useState([]);
+
+    const [err, setErr] = useState("");
     const [saving, setSaving] = useState(false);
+    const [warnings, setWarnings] = useState([]);
+
+    // ===== Toast lỗi tự ẩn + clear on change =====
+    const AUTO_DISMISS = 5000;
+    const errTimerRef = useRef(null);
+    const showError = (msg) => {
+        if (errTimerRef.current) { clearTimeout(errTimerRef.current); errTimerRef.current = null; }
+        setErr(msg || "");
+        if (msg) errTimerRef.current = setTimeout(() => { setErr(""); errTimerRef.current = null; }, AUTO_DISMISS);
+    };
+    useEffect(() => () => { if (errTimerRef.current) clearTimeout(errTimerRef.current); }, []);
 
     useEffect(() => {
         let alive = true;
         (async () => {
             try {
-                setLoading(true); setErr("");
-
-                const [one, cls, ts] = await Promise.all([
+                const [one, ts, cls] = await Promise.all([
                     getSession(id),
-                    getClasses(),
-                    fetchTeachers()
+                    fetchTeachers(),
+                    getClasses().catch(() => []),
                 ]);
                 if (!alive) return;
 
-                setInfo(one);
-                setClasses(Array.isArray(cls) ? cls : []);
                 setTeachers(Array.isArray(ts) ? ts : []);
+                setClasses(Array.isArray(cls) ? cls : []);
 
-                setSessionDate(toDateValue(one.sessionDate));
-                setStartTime(one.startTime);
-                setEndTime(one.endTime);
-                setTeacherId(one.teacherId ?? "");  // null => ""
-                setStatus(Number(one.status ?? 0));
+                setInfo(one || {});
+                const iso = anyToISO(one.sessionDate ?? one.SessionDate);
+                setSessionDateISO(iso);
+                setSessionDateText(isoToDMY(iso));
+
+                setStartTime(one.startTime ?? one.StartTime ?? "00:00:00");
+                setEndTime(one.endTime ?? one.EndTime ?? "00:00:00");
+                setTeacherId(one.teacherId ?? one.TeacherId ?? "");
+                setStatus(Number(one.status ?? one.Status ?? 0));
                 setNote(one.note || "");
             } catch (e) {
-                if (!alive) return;
-                setErr(e?.message || "Không tải được buổi học");
-            } finally {
-                if (alive) setLoading(false);
+                showError(e?.message || "Không tải được buổi học");
             }
         })();
         return () => { alive = false; };
     }, [id]);
 
-    async function onSubmit(e) {
-        e.preventDefault();
-        setErr("");
+    function validate() {
+        if (!sessionDateISO) return "Vui lòng chọn ngày.";
+        if (teacherId === "" || teacherId == null) return "Vui lòng chọn giáo viên.";
+        const s = new Date(`${sessionDateISO}T${toTimeInput(startTime)}:00`);
+        const e = new Date(`${sessionDateISO}T${toTimeInput(endTime)}:00`);
+        if (!(s < e)) return "Giờ kết thúc phải lớn hơn giờ bắt đầu.";
+        return "";
+    }
 
-        if (!info?.canEdit) {
-            setErr("Buổi học đã/đang diễn ra, không thể chỉnh sửa.");
-            return;
-        }
-        if (!sessionDate || !startTime || !endTime) {
-            setErr("Vui lòng nhập đầy đủ ngày/giờ.");
-            return;
-        }
-        if (endTime <= startTime) {
-            setErr("Giờ kết thúc phải lớn hơn giờ bắt đầu.");
-            return;
-        }
-
-        const patch = {
-            SessionDate: sessionDate,                // "yyyy-MM-dd"
-            StartTime: startTime,                    // "HH:mm"
-            EndTime: endTime,                        // "HH:mm"
+    async function doSave() {
+        const payload = {
+            SessionDate: sessionDateISO,
+            StartTime: toHHMMSS(startTime),
+            EndTime: toHHMMSS(endTime),
             TeacherId: teacherId === "" ? null : Number(teacherId),
-            Note: note || null,
-            Status: Number(status),
+            Note: note?.trim() || null,
+            Status: Number(status ?? 0),
         };
+        await updateSession(Number(id), payload);
+    }
+
+    async function save() {
+        const v = validate();
+        if (v) return showError(v);
 
         try {
-            // 1) Preflight cảnh báo
-            const list = await checkStudentOverlapForSession(Number(id), patch);
-            if (list.length > 0) {
-                setWarnings(list);
-                setPendingPatch(patch);
-                setWarnOpen(true);
-                return; // dừng lại, chờ xác nhận
+            setSaving(true);
+
+            // Warning trùng học sinh (giống schedule)
+            const warns = await checkStudentOverlapForSession(Number(id), {
+                SessionDate: sessionDateISO,
+                StartTime: toHHMMSS(startTime),
+                EndTime: toHHMMSS(endTime),
+            });
+            if (Array.isArray(warns) && warns.length) {
+                setWarnings(warns);
+                setSaving(false);
+                return;
             }
 
-            // 2) Không có cảnh báo → lưu luôn
-            setSaving(true);
-            await updateSession(Number(id), patch);
-            navigate("/sessions", { state: { flash: "Cập nhật buổi học thành công." }, replace: true });
+            await doSave();
+            nav("/sessions", { state: { notice: "Đã cập nhật buổi học." } });
         } catch (e) {
             const res = e?.response;
-            let msg =
-                e?.userMessage ||
+            const msg =
                 res?.data?.message ||
                 res?.data?.detail ||
                 res?.data?.title ||
                 (typeof res?.data === "string" ? res.data : null) ||
                 e?.message ||
-                "Cập nhật thất bại";
-            // Nếu BE (không nên) trả list như lỗi
-            if (Array.isArray(res?.data) && res.data.length) {
-                setWarnings(res.data);
-                setPendingPatch(patch);
-                setWarnOpen(true);
-                msg = "Có cảnh báo trùng lịch.";
-            }
-            setErr(String(msg));
+                "Có lỗi xảy ra khi lưu.";
+            showError(String(msg));
         } finally {
             setSaving(false);
         }
     }
 
-    if (loading) {
-        return (
-            <>
-                <section className="content-header"><h1>Sửa buổi học</h1></section>
-                <section className="content"><p className="text-muted">Đang tải…</p></section>
-            </>
-        );
-    }
-    if (!info) {
-        return (
-            <>
-                <section className="content-header"><h1>Sửa buổi học</h1></section>
-                <section className="content"><div className="alert alert-danger">{err || "Không tìm thấy buổi học"}</div></section>
-            </>
-        );
-    }
-
     return (
         <>
+            {/* KHÔNG bọc bằng .content-wrapper để tránh khoảng cam */}
             <section className="content-header">
-                <h1>Sửa buổi học</h1>
-                <small>{info.className} — #{info.sessionId}</small>
+                <h1>Sửa buổi học #{id}</h1>
+                <ol className="breadcrumb">
+                    <li><Link to="/">Trang chủ</Link></li>
+                    <li className="active">Sửa buổi</li>
+                </ol>
             </section>
 
             <section className="content">
                 <div className="box box-primary">
                     <div className="box-header with-border">
-                        <Link to="/sessions" className="btn btn-default btn-sm">
-                            <i className="fa fa-arrow-left" /> Quay lại
-                        </Link>
+                        <h3 className="box-title">Thông tin buổi</h3>
                     </div>
 
-                    {err && <div className="box-body"><div className="alert alert-danger">{err}</div></div>}
-
-                    <form className="form-horizontal" onSubmit={onSubmit}>
-                        <div className="box-body">
-                            {!info.canEdit && (
-                                <div className="alert alert-warning">
-                                    Buổi học đã bắt đầu/đã diễn ra nên <b>không thể chỉnh sửa</b>.
-                                </div>
-                            )}
-
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Lớp</label>
-                                <div className="col-sm-10">
-                                    <p className="form-control-static">{info.className} (ID: {info.classID})</p>
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Ngày</label>
-                                <div className="col-sm-4">
-                                    <input type="date" className="form-control" value={sessionDate} onChange={e => setSessionDate(e.target.value)} disabled={!info.canEdit} />
-                                </div>
-
-                                <label className="col-sm-2 control-label">Giờ bắt đầu</label>
-                                <div className="col-sm-4">
-                                    <input type="time" className="form-control" value={startTime} onChange={e => setStartTime(e.target.value)} disabled={!info.canEdit} />
+                    <div className="box-body">
+                        <div className="row">
+                            <div className="col-sm-3">
+                                <div className="form-group">
+                                    <label>Ngày</label>
+                                    <input
+                                        type="date"
+                                        className="form-control"
+                                        value={sessionDateISO}
+                                        onChange={(e) => {
+                                            const iso = e.target.value;
+                                            setSessionDateISO(iso);
+                                            setSessionDateText(isoToDMY(iso));
+                                            if (err) showError("");
+                                        }}
+                                    />
+                                    <p className="help-block">Dạng: {sessionDateText || "dd/MM/yyyy"}</p>
                                 </div>
                             </div>
-
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Giờ kết thúc</label>
-                                <div className="col-sm-4">
-                                    <input type="time" className="form-control" value={endTime} onChange={e => setEndTime(e.target.value)} disabled={!info.canEdit} />
-                                </div>
-
-                                <label className="col-sm-2 control-label">Giáo viên</label>
-                                <div className="col-sm-4">
-                                    <select className="form-control" value={teacherId} onChange={e => setTeacherId(e.target.value)} disabled={!info.canEdit}>
-                                        <option value="">(Dùng GV chính của lớp)</option>
-                                        {teachers.map(t => (
-                                            <option key={t.teacherId} value={t.teacherId}>{t.teacherName}</option>
-                                        ))}
-                                    </select>
-                                    <p className="help-block">
-                                        GV hiện tại: <b>{info.teacherName || "— (fallback GV chính)"}</b>
-                                    </p>
+                            <div className="col-sm-2">
+                                <div className="form-group">
+                                    <label>Bắt đầu</label>
+                                    <input
+                                        type="time"
+                                        className="form-control"
+                                        value={toTimeInput(startTime)}
+                                        onChange={(e) => { setStartTime(e.target.value); if (err) showError(""); }}
+                                    />
                                 </div>
                             </div>
-
-                            {/* ✅ Trạng thái */}
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Trạng thái</label>
-                                <div className="col-sm-4">
+                            <div className="col-sm-2">
+                                <div className="form-group">
+                                    <label>Kết thúc</label>
+                                    <input
+                                        type="time"
+                                        className="form-control"
+                                        value={toTimeInput(endTime)}
+                                        onChange={(e) => { setEndTime(e.target.value); if (err) showError(""); }}
+                                    />
+                                </div>
+                            </div>
+                            <div className="col-sm-5">
+                                <div className="form-group">
+                                    <label>Giáo viên</label>
                                     <select
                                         className="form-control"
-                                        value={status}
-                                        onChange={e => setStatus(Number(e.target.value))}
-                                        disabled={!info.canEdit}
+                                        value={teacherId}
+                                        onChange={(e) => { setTeacherId(e.target.value); if (err) showError(""); }}
                                     >
-                                        <option value={0}>Chưa diễn ra</option>
-                                        <option value={1}>Hoàn thành</option>
-                                        <option value={2}>Bị hủy</option>
-                                        <option value={3}>Ẩn</option>
-                                        <option value={4}>Học bù</option>
+                                        <option value="">-- Chọn giáo viên --</option>
+                                        {teachers.map((t) => {
+                                            const idv = t.teacherId ?? t.TeacherId;
+                                            const name = t.teacherName ?? t.fullName ?? t.FullName ?? `(GV #${idv})`;
+                                            return <option key={idv} value={idv}>{name}</option>;
+                                        })}
                                     </select>
                                     <p className="help-block">
-                                        Chỉ có thể hủy khi buổi <b>chưa diễn ra</b>.
+                                        GV hiện tại:{" "}
+                                        <b>
+                                            {info.teacherName ??
+                                                info.teacherFullName ??
+                                                info.teacher?.fullName ??
+                                                (info.teacherId != null ? `#${info.teacherId}` : "—")}
+                                        </b>
                                     </p>
                                 </div>
                             </div>
-
-                            <div className="form-group">
-                                <label className="col-sm-2 control-label">Ghi chú</label>
-                                <div className="col-sm-10">
-                                    <textarea className="form-control" rows="2" value={note} onChange={e => setNote(e.target.value)} disabled={!info.canEdit} />
-                                </div>
-                            </div>
                         </div>
 
-                        <div className="box-footer">
-                            <button type="button" className="btn btn-default" onClick={() => navigate("/sessions")}>
-                                Hủy
-                            </button>
-                            <button type="submit" className="btn btn-primary pull-right" disabled={!info.canEdit || saving}>
-                                {saving ? "Đang lưu..." : "Lưu thay đổi"}
-                            </button>
+                        <div className="form-group">
+                            <label>Ghi chú</label>
+                            <input className="form-control" value={note} onChange={(e) => { setNote(e.target.value); if (err) showError(""); }} />
                         </div>
-                    </form>
+                    </div>
+
+                    <div className="box-footer">
+                        <button className="btn btn-primary" disabled={saving} onClick={save}>
+                            <i className="fa fa-save" /> Lưu
+                        </button>
+                        <Link to="/sessions" className="btn btn-default" style={{ marginLeft: 10 }}>
+                            Hủy
+                        </Link>
+                    </div>
                 </div>
             </section>
 
-            {/* Modal cảnh báo trùng học sinh */}
-            <OverlapWarningModal
-                open={warnOpen}
-                warnings={warnings}
-                title="Cảnh báo trùng học sinh (buổi học)"
-                onCancel={() => setWarnOpen(false)}
-                onConfirm={async () => {
-                    try {
-                        setSaving(true);
-                        await updateSession(Number(id), pendingPatch || {});
-                        setWarnOpen(false);
-                        navigate("/sessions", { state: { flash: "Cập nhật buổi học thành công." }, replace: true });
-                    } catch (e) {
-                        const res = e?.response;
-                        const msg =
-                            e?.userMessage ||
-                            res?.data?.message ||
-                            res?.data?.detail ||
-                            res?.data?.title ||
-                            (typeof res?.data === "string" ? res.data : null) ||
-                            e?.message ||
-                            "Có lỗi xảy ra khi lưu.";
-                        setErr(String(msg));
-                    } finally {
-                        setSaving(false);
-                    }
-                }}
-            />
+            {/* Toast lỗi nổi */}
+            {err && (
+                <div
+                    className="alert alert-danger"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={() => showError("")} aria-label="Close" style={{ marginLeft: 8 }}>
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    {err}
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {AUTO_DISMISS / 1000}s</div>
+                </div>
+            )}
+
+            {/* Modal cảnh báo học sinh trùng */}
+            {warnings.length > 0 && (
+                <OverlapWarningModal
+                    open
+                    title="Cảnh báo trùng học sinh"
+                    warnings={warnings}
+                    onCancel={() => setWarnings([])}
+                    onConfirm={async () => {
+                        setWarnings([]);
+                        try {
+                            setSaving(true);
+                            await doSave();
+                            nav("/sessions", { state: { notice: "Đã cập nhật buổi học." } });
+                        } catch (e) {
+                            showError(e?.response?.data?.message || e.message || "Có lỗi xảy ra khi lưu.");
+                        } finally {
+                            setSaving(false);
+                        }
+                    }}
+                />
+            )}
         </>
     );
 }

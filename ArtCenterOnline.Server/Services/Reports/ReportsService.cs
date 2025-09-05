@@ -35,25 +35,52 @@ namespace ArtCenterOnline.Server.Services.Reports
                 s => s.ngayBatDauHoc >= doPrevFirst && s.ngayBatDauHoc < doFirst, ct);
 
             double newDelta = CalcDeltaPct(newPrev, newThis);
-
             // ===== 2) Số buổi / buổi hủy trong tháng (this & prev) =====
-            int sessionsThisMonth = await _ctx.ClassSessions.CountAsync(
-                s => s.SessionDate >= doFirst && s.SessionDate < doNextFirst, ct);
+            var today = DateOnly.FromDateTime(DateTime.Today);
 
+            // Mốc kết thúc cho "tháng này" chỉ tính đến hôm nay
+            DateOnly endThis;
+            if (doFirst.Year == today.Year && doFirst.Month == today.Month)
+            {
+                endThis = today.AddDays(1);          // bao gồm hôm nay (dùng điều kiện < endThis)
+            }
+            else if (doFirst > today)
+            {
+                endThis = doFirst;                   // tháng tương lai -> 0
+            }
+            else
+            {
+                endThis = doNextFirst;               // tháng quá khứ -> trọn tháng
+            }
+
+            // Tổng số buổi (mọi trạng thái) "tính đến hôm nay" trong tháng này – làm mẫu số cho cancelRate
+            int sessionsTotalThisMonth = await _ctx.ClassSessions.CountAsync(
+                s => s.SessionDate >= doFirst && s.SessionDate < endThis, ct);
+
+            // ĐÃ HOÀN THÀNH trong tháng này (tính đến hôm nay)
+            int sessionsThisMonth = await _ctx.ClassSessions.CountAsync(
+                s => s.SessionDate >= doFirst && s.SessionDate < endThis
+                  && s.Status == SessionStatus.Completed, ct);
+
+            // ĐÃ HỦY trong tháng này (tính đến hôm nay)
             int sessionsCanceled = await _ctx.ClassSessions.CountAsync(
-                s => s.SessionDate >= doFirst && s.SessionDate < doNextFirst
+                s => s.SessionDate >= doFirst && s.SessionDate < endThis
                   && s.Status == SessionStatus.Cancelled, ct);
 
+            // Tháng trước: giữ nguyên tính trọn tháng
             int sessionsPrev = await _ctx.ClassSessions.CountAsync(
-                s => s.SessionDate >= doPrevFirst && s.SessionDate < doFirst, ct);
+                s => s.SessionDate >= doPrevFirst && s.SessionDate < doFirst
+                  && s.Status == SessionStatus.Completed, ct);
 
             int sessionsCanceledPrev = await _ctx.ClassSessions.CountAsync(
                 s => s.SessionDate >= doPrevFirst && s.SessionDate < doFirst
                   && s.Status == SessionStatus.Cancelled, ct);
 
-            double cancelRate = sessionsThisMonth == 0
+            // Tỷ lệ hủy = số buổi hủy / tổng số buổi (mọi trạng thái) "tính đến hôm nay"
+            double cancelRate = sessionsTotalThisMonth == 0
                 ? 0
-                : Math.Round(sessionsCanceled * 100.0 / sessionsThisMonth, 2);
+                : Math.Round(sessionsCanceled * 100.0 / sessionsTotalThisMonth, 2);
+
 
             // ===== 3) Attendance: kéo về bộ nhớ để tính an toàn =====
             var attThis = await (
@@ -103,11 +130,34 @@ namespace ArtCenterOnline.Server.Services.Reports
                 .ToList();
 
             // ===== 5) Top lớp / giáo viên theo tỉ lệ điểm danh =====
-            var topClassesRaw = attThis
+            // --- Chốt mốc "hôm nay" (nếu SessionDate là DateTime) ---
+          
+
+
+            // Nếu SessionDate là DateOnly, dùng:
+            // var today = DateOnly.FromDateTime(DateTime.Today);
+
+            // Lấy dữ liệu điểm danh của các buổi HÔM NAY, gắn theo lớp & giáo viên của BUỔI
+            var attToday = await (
+                 from a in _ctx.Attendances
+                 join s in _ctx.ClassSessions on a.SessionId equals s.SessionId
+                 where s.SessionDate == today               // so sánh DateOnly với DateOnly
+                 && s.Status != SessionStatus.Cancelled
+                    select new
+                            {
+                                 ClassID = s.ClassID,
+                                 TeacherId = s.TeacherId,               // GV của buổi (Admin điểm hộ vẫn tính cho GV này)
+                                    IsPresent = a.IsPresent
+                                }
+                        ).ToListAsync(ct);
+
+            // ---------------- TOP LỚP HÔM NAY ----------------
+            var topClassesRaw = attToday
                 .GroupBy(x => x.ClassID)
                 .Select(g => new { key = g.Key, total = g.Count(), present = g.Count(x => x.IsPresent) })
                 .Where(x => x.total > 0)
                 .OrderByDescending(x => x.present * 1.0 / x.total)
+                .ThenByDescending(x => x.present) // tie-break khi % bằng nhau
                 .Take(5)
                 .ToList();
 
@@ -125,12 +175,14 @@ namespace ArtCenterOnline.Server.Services.Reports
                 })
                 .ToList();
 
-            var topTeachersRaw = attThis
+            // ---------------- TOP GIÁO VIÊN HÔM NAY ----------------
+            var topTeachersRaw = attToday
                 .Where(x => x.TeacherId != null)
                 .GroupBy(x => x.TeacherId!.Value)
                 .Select(g => new { key = g.Key, total = g.Count(), present = g.Count(x => x.IsPresent) })
                 .Where(x => x.total > 0)
                 .OrderByDescending(x => x.present * 1.0 / x.total)
+                .ThenByDescending(x => x.present)
                 .Take(5)
                 .ToList();
 
@@ -147,6 +199,7 @@ namespace ArtCenterOnline.Server.Services.Reports
                     Value = Math.Round(x.present * 100.0 / x.total, 1)
                 })
                 .ToList();
+
 
             // ===== 6) LeftStudents: tắt tạm theo yêu cầu =====
             int leftThis = 0, leftPrev = 0;

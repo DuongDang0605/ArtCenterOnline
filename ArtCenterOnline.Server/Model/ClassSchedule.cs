@@ -15,5 +15,10 @@ namespace ArtCenterOnline.Server.Model
 
         public bool IsActive { get; set; } = true; // Có còn áp dụng không
         public string? Note { get; set; }          // Ghi chú (VD: học online, phòng A101)
+
+
+        public int? TeacherId { get; set; }          // NEW: giáo viên phụ trách lịch này
+        public TeacherInfo? Teacher { get; set; }    // NEW: navigation
+
     }
 }

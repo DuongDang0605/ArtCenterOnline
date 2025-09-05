@@ -34,10 +34,8 @@ namespace ArtCenterOnline.Server.Data
                 entity.Property(e => e.ClassName).HasMaxLength(100).IsRequired();
                 entity.Property(e => e.Branch).HasMaxLength(100).IsRequired();
                 entity.Property(e => e.Status).HasDefaultValue(1);
-                entity.HasOne(c => c.MainTeacher)
-          .WithMany()
-          .HasForeignKey(c => c.MainTeacherId)
-          .OnDelete(DeleteBehavior.SetNull);
+                
+          
             });
 
             // User
@@ -130,6 +128,21 @@ namespace ArtCenterOnline.Server.Data
                 // Tránh tạo trùng lịch cùng ngày/giờ cho cùng 1 lớp
                 entity.HasIndex(s => new { s.ClassID, s.DayOfWeek, s.StartTime })
                       .IsUnique();
+
+                modelBuilder.Entity<ClassSchedule>(entity =>
+                {
+                    // (các cấu hình sẵn có…)
+
+                    // NEW: FK sang Teacher, xoá GV bị chặn khi đang có lịch tham chiếu
+                    entity.HasOne(e => e.Teacher)
+                          .WithMany()
+                          .HasForeignKey(e => e.TeacherId)
+                          .OnDelete(DeleteBehavior.Restrict);
+
+                    // NEW: chỉ mục hỗ trợ validator mức lịch theo GV
+                    entity.HasIndex(e => new { e.TeacherId, e.DayOfWeek, e.StartTime, e.EndTime });
+                });
+
             });
             modelBuilder.Entity<ClassSession>(entity =>
             {
@@ -164,20 +177,7 @@ namespace ArtCenterOnline.Server.Data
                 entity.HasIndex("TeacherId", "SessionDate")
                       .HasFilter("[TeacherId] IS NOT NULL");
             });
-            modelBuilder.Entity<ClassInfo>(entity =>
-            {
-                entity.HasKey(e => e.ClassID);
-                entity.Property(e => e.ClassName).HasMaxLength(100).IsRequired();
-                entity.Property(e => e.Branch).HasMaxLength(100).IsRequired();
-                entity.Property(e => e.Status).HasDefaultValue(1);
-
-
-                // 👉 NEW: MainTeacher (SetNull nếu gv nghỉ/xoá)
-                entity.HasOne(c => c.MainTeacher)
-                .WithMany()
-                .HasForeignKey(c => c.MainTeacherId)
-                .OnDelete(DeleteBehavior.SetNull);
-            });
+          
 
             // 👉 NEW: ClassSession mapping
             modelBuilder.Entity<ClassSession>(entity =>
