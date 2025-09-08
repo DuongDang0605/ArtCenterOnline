@@ -1,6 +1,6 @@
 ﻿/* eslint-disable no-unused-vars */
 // src/Template/Session/EditSessionPage.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { getSession, updateSession, checkStudentOverlapForSession } from "./sessions";
 import { getClasses } from "../Class/classes";
@@ -55,19 +55,27 @@ export default function EditSessionPage() {
 
     const [teachers, setTeachers] = useState([]);
 
+    // ===== Toast lỗi: đếm ngược 5s + progress =====
+    const AUTO_DISMISS = 5000;
     const [err, setErr] = useState("");
+    const [remaining, setRemaining] = useState(0);
+    const showError = (msg) => {
+        setErr(msg || "");
+        if (msg) setRemaining(AUTO_DISMISS);
+    };
+    useEffect(() => {
+        if (!err) return;
+        const startedAt = Date.now();
+        const iv = setInterval(() => {
+            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
+            setRemaining(left);
+            if (left === 0) setErr("");
+        }, 1000);
+        return () => clearInterval(iv);
+    }, [err, AUTO_DISMISS]);
+
     const [saving, setSaving] = useState(false);
     const [warnings, setWarnings] = useState([]);
-
-    // ===== Toast lỗi tự ẩn + clear on change =====
-    const AUTO_DISMISS = 5000;
-    const errTimerRef = useRef(null);
-    const showError = (msg) => {
-        if (errTimerRef.current) { clearTimeout(errTimerRef.current); errTimerRef.current = null; }
-        setErr(msg || "");
-        if (msg) errTimerRef.current = setTimeout(() => { setErr(""); errTimerRef.current = null; }, AUTO_DISMISS);
-    };
-    useEffect(() => () => { if (errTimerRef.current) clearTimeout(errTimerRef.current); }, []);
 
     useEffect(() => {
         let alive = true;
@@ -260,7 +268,7 @@ export default function EditSessionPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi */}
+            {/* Toast lỗi nổi (đếm ngược + progress) */}
             {err && (
                 <div
                     className="alert alert-danger"
@@ -270,7 +278,19 @@ export default function EditSessionPage() {
                         <span aria-hidden="true">&times;</span>
                     </button>
                     {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {AUTO_DISMISS / 1000}s</div>
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
+                    </div>
+                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                        <div
+                            style={{
+                                height: "100%",
+                                width: `${(remaining / AUTO_DISMISS) * 100}%`,
+                                background: "#a94442",
+                                transition: "width 100ms linear"
+                            }}
+                        />
+                    </div>
                 </div>
             )}
 

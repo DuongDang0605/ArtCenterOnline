@@ -151,13 +151,22 @@ namespace ArtCenterOnline.Server.Services.Reports
                                 }
                         ).ToListAsync(ct);
 
-            // ---------------- TOP LỚP HÔM NAY ----------------
-            var topClassesRaw = attToday
+            // ===== 5) Top lớp / giáo viên theo tỉ lệ điểm danh (THEO THÁNG) =====
+            var attRange = await (
+                from a in _ctx.Attendances
+                join s in _ctx.ClassSessions on a.SessionId equals s.SessionId
+                where s.SessionDate >= doFirst && s.SessionDate < endThis
+                      && s.Status == SessionStatus.Completed // chỉ buổi đã diễn ra
+                select new { a.IsPresent, s.ClassID, s.TeacherId }
+            ).ToListAsync(ct);
+
+            // --- TOP LỚP ---
+            var topClassesRaw = attRange
                 .GroupBy(x => x.ClassID)
                 .Select(g => new { key = g.Key, total = g.Count(), present = g.Count(x => x.IsPresent) })
                 .Where(x => x.total > 0)
                 .OrderByDescending(x => x.present * 1.0 / x.total)
-                .ThenByDescending(x => x.present) // tie-break khi % bằng nhau
+                .ThenByDescending(x => x.present)
                 .Take(5)
                 .ToList();
 
@@ -167,16 +176,14 @@ namespace ArtCenterOnline.Server.Services.Reports
                 .Select(c => new { c.ClassID, c.ClassName })
                 .ToDictionaryAsync(x => x.ClassID, x => x.ClassName, ct);
 
-            var topClasses = topClassesRaw
-                .Select(x => new NameValue
-                {
-                    Name = (x.key != 0 && classNames.TryGetValue(x.key, out var n)) ? n : $"Class {x.key}",
-                    Value = Math.Round(x.present * 100.0 / x.total, 1)
-                })
-                .ToList();
+            var topClasses = topClassesRaw.Select(x => new NameValue
+            {
+                Name = (x.key != 0 && classNames.TryGetValue(x.key, out var n)) ? n : $"Class {x.key}",
+                Value = Math.Round(x.present * 100.0 / x.total, 1)
+            }).ToList();
 
-            // ---------------- TOP GIÁO VIÊN HÔM NAY ----------------
-            var topTeachersRaw = attToday
+            // --- TOP GIÁO VIÊN ---
+            var topTeachersRaw = attRange
                 .Where(x => x.TeacherId != null)
                 .GroupBy(x => x.TeacherId!.Value)
                 .Select(g => new { key = g.Key, total = g.Count(), present = g.Count(x => x.IsPresent) })
@@ -192,13 +199,12 @@ namespace ArtCenterOnline.Server.Services.Reports
                 .Select(t => new { t.TeacherId, t.TeacherName })
                 .ToDictionaryAsync(x => x.TeacherId, x => x.TeacherName, ct);
 
-            var topTeachers = topTeachersRaw
-                .Select(x => new NameValue
-                {
-                    Name = teacherNames.TryGetValue(x.key, out var n) ? n : $"Teacher {x.key}",
-                    Value = Math.Round(x.present * 100.0 / x.total, 1)
-                })
-                .ToList();
+            var topTeachers = topTeachersRaw.Select(x => new NameValue
+            {
+                Name = teacherNames.TryGetValue(x.key, out var n) ? n : $"Teacher {x.key}",
+                Value = Math.Round(x.present * 100.0 / x.total, 1)
+            }).ToList();
+
 
 
             // ===== 6) LeftStudents: tắt tạm theo yêu cầu =====

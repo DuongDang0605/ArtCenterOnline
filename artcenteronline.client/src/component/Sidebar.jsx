@@ -11,7 +11,7 @@ export default function Sidebar() {
                 <div className="user-panel">
                     <div className="pull-left image">
                         <img
-                            src="/AdminLTE/dist/img/user2-160x160.jpg"
+                            src="/AdminLTE/dist/img/A1.jpg"
                             className="img-circle"
                             alt="User"
                         />
@@ -27,12 +27,13 @@ export default function Sidebar() {
                 <ul className="sidebar-menu" data-widget="tree">
                     <li className="header">MAIN NAVIGATION</li>
 
-                    {/* Class */}
+                
                     {isAdmin && (
                         <li>
                             <Link to="/reports">
-                                <i className="fa fa-chart-line" /> <span>Báo cáo</span>
+                                <i className="fa fa-line-chart" aria-hidden="true" /> <span>Báo cáo</span>
                             </Link>
+
                         </li>
                     )}
 

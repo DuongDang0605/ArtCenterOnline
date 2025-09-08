@@ -157,3 +157,60 @@ table.dataTable {
 .kpi-icon {
     filter: drop-shadow(0 2px 2px rgba(0,0,0,.2));
 }
+
+/* Fallback khi Font Awesome không tải được */
+.sidebar-toggle::before {
+    content: "≡"; /* ký tự Unicode */
+    font-family: inherit; /* dùng font hệ thống */
+    font-weight: 700;
+}
+
+/* Avatar nhỏ ở thanh navbar (nút dropdown) */
+.navbar .user-image {
+    width: 28px; /* kích thước cố định */
+    height: 28px;
+    border-radius: 50%; /* bo tròn */
+    object-fit: cover; /* cắt giữa, không méo */
+    object-position: center;
+    display: inline-block; /* tránh khoảng trống baseline */
+    vertical-align: middle;
+    overflow: hidden; /* chặn tràn */
+}
+
+/* Ảnh lớn trong dropdown user (nếu dùng .user-header) */
+.user-header img,
+.dropdown-menu .user-header img {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center;
+}
+
+/* Phòng trường hợp AdminLTE đặt max-width:100% gây co giãn không mong muốn */
+.navbar .user-image,
+.user-header img {
+    max-width: none;
+    aspect-ratio: 1 / 1; /* giữ tỉ lệ 1:1 khi trình duyệt hỗ trợ */
+}
+
+/* Sidebar user panel avatar (trong <div class="pull-left image">…) */
+.user-panel .image,
+.user-panel .pull-left.image {
+    width: 45px; /* đổi 45px nếu muốn to/nhỏ hơn */
+    height: 45px;
+    border-radius: 50%;
+    overflow: hidden; /* cắt phần thừa */
+}
+
+    .user-panel .image img,
+    .user-panel .pull-left.image img {
+        width: 100%;
+        height: 100%;
+        display: block; /* bỏ khoảng trống inline */
+        max-width: none; /* không bị co theo max-width:100% */
+        border-radius: 50%; /* giữ tròn khi thiếu wrapper */
+        object-fit: cover; /* cắt giữa, không méo */
+        object-position: center;
+        aspect-ratio: 1 / 1; /* hỗ trợ trình duyệt mới, giữ tỉ lệ 1:1 */
+    }
