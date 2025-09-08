@@ -1,5 +1,5 @@
 ﻿// src/Template/ClassSchedule/AddEditSchedulePage.jsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
     createSchedule,
@@ -60,30 +60,27 @@ export default function AddEditSchedulePage() {
 
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState("");
-    const [warnings, setWarnings] = useState([]);
 
-    // ==== Toast lỗi tự ẩn + clear khi đổi field ====
+    // ==== Toast lỗi: đếm ngược 5s + progress ====
     const AUTO_DISMISS = 5000; // ms
-    const errTimerRef = useRef(null);
-
-    const showError = (msg) => {
-        if (errTimerRef.current) {
-            clearTimeout(errTimerRef.current);
-            errTimerRef.current = null;
-        }
+    const [err, setErr] = useState("");
+    const [remaining, setRemaining] = useState(0);
+    function showError(msg) {
         setErr(msg || "");
-        if (msg) {
-            errTimerRef.current = setTimeout(() => {
-                setErr("");
-                errTimerRef.current = null;
-            }, AUTO_DISMISS);
-        }
-    };
-
+        if (msg) setRemaining(AUTO_DISMISS);
+    }
     useEffect(() => {
-        return () => { if (errTimerRef.current) clearTimeout(errTimerRef.current); };
-    }, []);
+        if (!err) return;
+        const startedAt = Date.now();
+        const iv = setInterval(() => {
+            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
+            setRemaining(left);
+            if (left === 0) setErr("");
+        }, 1000); // đổi thành 1000 nếu muốn nhảy 1s
+        return () => clearInterval(iv);
+    }, [err, AUTO_DISMISS]);
+
+    const [warnings, setWarnings] = useState([]);
 
     useEffect(() => {
         let alive = true;
@@ -190,6 +187,7 @@ export default function AddEditSchedulePage() {
                     </div>
                 </section>
 
+                {/* Toast lỗi khi đang loading */}
                 {err && (
                     <div
                         className="alert alert-danger"
@@ -197,7 +195,19 @@ export default function AddEditSchedulePage() {
                     >
                         <button type="button" className="close" onClick={() => showError("")}><span aria-hidden="true">&times;</span></button>
                         {err}
-                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {AUTO_DISMISS / 1000}s</div>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                            Tự ẩn sau {(remaining / 1000).toFixed(1)}s
+                        </div>
+                        <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                            <div
+                                style={{
+                                    height: "100%",
+                                    width: `${(remaining / AUTO_DISMISS) * 100}%`,
+                                    background: "#a94442",
+                                    transition: "width 100ms linear"
+                                }}
+                            />
+                        </div>
                     </div>
                 )}
             </>
@@ -319,7 +329,7 @@ export default function AddEditSchedulePage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi (tự ẩn sau 5s) */}
+            {/* Toast lỗi nổi (đếm ngược + progress) */}
             {err && (
                 <div
                     className="alert alert-danger"
@@ -328,8 +338,23 @@ export default function AddEditSchedulePage() {
                     <button type="button" className="close" onClick={() => showError("")} aria-label="Close" style={{ marginLeft: 8 }}>
                         <span aria-hidden="true">&times;</span>
                     </button>
+
                     {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {AUTO_DISMISS / 1000}s</div>
+
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
+                    </div>
+
+                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                        <div
+                            style={{
+                                height: "100%",
+                                width: `${(remaining / AUTO_DISMISS) * 100}%`,
+                                background: "#a94442",
+                                transition: "width 100ms linear"
+                            }}
+                        />
+                    </div>
                 </div>
             )}
 

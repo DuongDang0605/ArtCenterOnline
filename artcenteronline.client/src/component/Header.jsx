@@ -36,12 +36,12 @@ export default function Header() {
                     <ul className="nav navbar-nav">
                         <li className="dropdown user user-menu">
                             <a href="#" className="dropdown-toggle" data-toggle="dropdown">
-                                <img src="/AdminLTE/dist/img/user2-160x160.jpg" className="user-image" alt="User" />
+                                <img src="/AdminLTE/dist/img/A1.jpg" className="user-image" alt="User" />
                                 <span className="hidden-xs">{user?.fullName || "Guest"}</span>
                             </a>
                             <ul className="dropdown-menu">
                                 <li className="user-header">
-                                    <img src="/AdminLTE/dist/img/user2-160x160.jpg" className="img-circle" alt="User" />
+                                    <img src="/AdminLTE/dist/img/A1.jpg" className="img-circle" alt="User" />
                                     <p>
                                         {user?.fullName || "Guest"} - {roles?.join(", ") || "No Role"}
                                     </p>

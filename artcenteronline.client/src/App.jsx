@@ -1,6 +1,8 @@
 ﻿// src/App.jsx
 import { Routes, Route } from "react-router-dom";
 import Layout from "./component/Layout";
+import "font-awesome/css/font-awesome.min.css";
+
 
 // Auth infra (ĐÃ SỬA ĐÚNG)
 import AuthProvider from "./auth/AuthProvider";
