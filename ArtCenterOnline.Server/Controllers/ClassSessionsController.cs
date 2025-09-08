@@ -11,13 +11,13 @@ namespace ArtCenterOnline.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize] // yêu cầu đăng nhập cho tất cả action
+    [Authorize]
     public class ClassSessionsController : ControllerBase
     {
         private readonly AppDbContext _db;
-        private readonly ITeacherScheduleValidator _teacherValidator;
-        private readonly IStudentScheduleValidator _studentValidator;
-        private readonly ClassSessionMonthlySyncService _syncService;
+        private readonly ITeacherScheduleValidator _teacherValidator;   // giữ DI như dự án
+        private readonly IStudentScheduleValidator _studentValidator;   // giữ DI như dự án
+        private readonly ClassSessionMonthlySyncService _syncService;   // giữ DI như dự án
 
         public ClassSessionsController(
             AppDbContext db,
@@ -32,52 +32,409 @@ namespace ArtCenterOnline.Server.Controllers
         }
 
         // ================== DTOs ==================
-        public class UpdateSessionDto
+        public sealed class UpdateSessionDto
         {
-            public string? SessionDate { get; set; }   // yyyy-MM-dd
-            public string? StartTime { get; set; }     // HH:mm hoặc HH:mm:ss
-            public string? EndTime { get; set; }       // HH:mm hoặc HH:mm:ss
-            public int? TeacherId { get; set; }
+            public string? SessionDate { get; set; }    // "yyyy-MM-dd"
+            public string? StartTime { get; set; }      // "HH:mm"
+            public string? EndTime { get; set; }        // "HH:mm"
+            public int? TeacherId { get; set; }         // null = chưa gán
+            public int? Status { get; set; }            // SessionStatus
             public string? Note { get; set; }
-            public int? Status { get; set; }
+            public bool? OverrideStudentConflicts { get; set; } // cho phép lưu dù có cảnh báo HS
         }
 
-        public class PreflightTeacherSessionDto
+        // Chi tiết duplicate trong cùng lớp
+        public sealed class DuplicateSessionInfo
         {
-            public int SessionId { get; set; }
-            public string SessionDate { get; set; } = "";   // yyyy-MM-dd
-            public string StartTime { get; set; } = "";
-            public string EndTime { get; set; } = "";
-            public int TeacherId { get; set; }
+            public int SessionId { get; init; }
+            public int ClassId { get; init; }
+            public string ClassName { get; init; } = "";
+            public string Date { get; init; } = "";   // d/M/y (DMY)
+            public string Start { get; init; } = "";
+            public string End { get; init; } = "";
+        }
+
+        // Chi tiết trùng GV
+        public sealed class TeacherOverlapInfo
+        {
+            public int SessionId { get; init; }
+            public int ClassId { get; init; }
+            public string ClassName { get; init; } = "";
+            public string Date { get; init; } = "";
+            public string Start { get; init; } = "";
+            public string End { get; init; } = "";
+            public int TeacherId { get; init; }
+            public string TeacherName { get; init; } = "";
+        }
+
+        // Cảnh báo trùng HS
+        public sealed class ConflictSlot
+        {
+            public int ClassId { get; init; }
+            public string ClassName { get; init; } = "";
+            public string Date { get; init; } = "";
+            public string Start { get; init; } = "";
+            public string End { get; init; } = "";
+        }
+        public sealed class StudentConflictInfo
+        {
+            public int StudentId { get; init; }
+            public string StudentName { get; init; } = "";
+            public ConflictSlot Conflict { get; init; } = new ConflictSlot();
         }
 
         // ================== Helpers ==================
-        private static bool TryParseDateOnly(string? s, out DateOnly d)
+        private static bool TryParseDateOnly(string? iso, out DateOnly value)
         {
-            if (!string.IsNullOrWhiteSpace(s))
-            {
-                if (DateOnly.TryParseExact(s!, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d))
-                    return true;
-                if (DateOnly.TryParse(s!, out d)) return true;
-                if (DateTime.TryParse(s!, out var dt)) { d = DateOnly.FromDateTime(dt); return true; }
-            }
-            d = default; return false;
+            if (!string.IsNullOrWhiteSpace(iso) &&
+                DateOnly.TryParseExact(iso.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out value))
+                return true;
+            value = default;
+            return false;
         }
 
-        private static bool TryParseTime(string? s, out TimeSpan t)
+        private static bool TryParseTime(string? hhmm, out TimeSpan value)
         {
-            if (!string.IsNullOrWhiteSpace(s))
-            {
-                // chấp nhận HH:mm hoặc HH:mm:ss
-                if (TimeSpan.TryParseExact(s, new[] { "hh\\:mm", "hh\\:mm\\:ss" }, CultureInfo.InvariantCulture, out t))
-                    return true;
-                if (TimeSpan.TryParse(s, out t)) return true;
-            }
-            t = default; return false;
+            if (!string.IsNullOrWhiteSpace(hhmm) &&
+                TimeSpan.TryParseExact(hhmm.Trim(), @"hh\:mm", CultureInfo.InvariantCulture, out value))
+                return true;
+            value = default;
+            return false;
         }
 
-        private static string HHMM(TimeSpan t) => t.ToString(@"hh\:mm");
-        private static string DMY(DateOnly d) => d.ToString("dd/MM/yyyy");
+        private static string DMY(DateOnly d) => $"{d.Day:D2}/{d.Month:D2}/{d.Year:D4}";
+        private static string HHMM(TimeSpan t) => $"{(int)t.TotalHours:D2}:{t.Minutes:D2}";
+
+        private static bool Overlap(TimeSpan aStart, TimeSpan aEnd, TimeSpan bStart, TimeSpan bEnd)
+        {
+            // [aStart, aEnd) overlaps [bStart, bEnd)
+            return aStart < bEnd && bStart < aEnd;
+        }
+
+        // ================== LIST ==================
+        // GET: /api/ClassSessions?from=yyyy-MM-dd&to=yyyy-MM-dd&classId=&teacherId=&status=
+        [HttpGet]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> List([FromQuery] string? from, [FromQuery] string? to,
+                                              [FromQuery] int? classId, [FromQuery] int? teacherId,
+                                              [FromQuery] int? status, CancellationToken ct)
+        {
+            var q = _db.ClassSessions
+                .AsNoTracking()
+                .Include(s => s.Class)
+                .Include(s => s.Teacher)
+                .AsQueryable();
+
+            if (TryParseDateOnly(from, out var fromDo))
+                q = q.Where(s => s.SessionDate >= fromDo);
+            if (TryParseDateOnly(to, out var toDo))
+                q = q.Where(s => s.SessionDate <= toDo);
+
+            if (classId.HasValue)
+                q = q.Where(s => s.ClassID == classId.Value);
+
+            if (teacherId.HasValue)
+                q = q.Where(s => s.TeacherId == teacherId.Value);
+
+            if (status.HasValue && Enum.IsDefined(typeof(SessionStatus), status.Value))
+            {
+                var st = (SessionStatus)status.Value;
+                q = q.Where(s => s.Status == st);
+            }
+
+            var rows = await q
+                .OrderBy(s => s.SessionDate)
+                .ThenBy(s => s.StartTime)
+                .Select(s => new
+                {
+                    sessionId = s.SessionId,
+                    classId = s.ClassID,
+                    className = s.Class != null ? s.Class.ClassName : $"#{s.ClassID}",
+                    teacherId = s.TeacherId,
+                    teacherName = s.Teacher != null ? s.Teacher.TeacherName : null,
+                    sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
+                    startTime = s.StartTime.ToString(@"hh\:mm"),
+                    endTime = s.EndTime.ToString(@"hh\:mm"),
+                    status = (int)s.Status,
+                    isAutoGenerated = s.IsAutoGenerated,
+                    note = s.Note
+                })
+                .ToListAsync(ct);
+
+            return Ok(rows);
+        }
+
+        // ================== GET ONE ==================
+        // GET: /api/ClassSessions/{id}
+        [HttpGet("{sessionId:int}")]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> GetOne([FromRoute] int sessionId, CancellationToken ct)
+        {
+            var s = await _db.ClassSessions
+                .AsNoTracking()
+                .Include(x => x.Class)
+                .Include(x => x.Teacher)
+                .FirstOrDefaultAsync(x => x.SessionId == sessionId, ct);
+
+            if (s == null) return NotFound(new { message = "Buổi học không tồn tại." });
+
+            // canEdit theo vai trò
+            var now = DateTime.Now;
+            var today = DateOnly.FromDateTime(now);
+            var endOfMonth = DateOnly.FromDateTime(new DateTime(now.Year, now.Month, DateTime.DaysInMonth(now.Year, now.Month)));
+
+            bool canEdit;
+            if (User.IsInRole("Admin"))
+            {
+                // Admin: cho sửa nếu ngày buổi trong [hôm nay .. hết tháng]
+                canEdit = s.SessionDate >= today && s.SessionDate <= endOfMonth;
+            }
+            else
+            {
+                // Giáo viên: chỉ trước giờ bắt đầu (theo giờ local)
+                var startLocal = new DateTime(s.SessionDate.Year, s.SessionDate.Month, s.SessionDate.Day,
+                                              s.StartTime.Hours, s.StartTime.Minutes, 0, DateTimeKind.Local);
+                canEdit = DateTime.Now < startLocal;
+            }
+
+            return Ok(new
+            {
+                sessionId = s.SessionId,
+                classId = s.ClassID,
+                className = s.Class != null ? s.Class.ClassName : $"#{s.ClassID}",
+                sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
+                startTime = s.StartTime.ToString(@"hh\:mm"),
+                endTime = s.EndTime.ToString(@"hh\:mm"),
+                status = (int)s.Status,
+                isAutoGenerated = s.IsAutoGenerated,
+                teacherId = s.TeacherId,
+                teacherName = s.Teacher != null ? s.Teacher.TeacherName : null,
+                note = s.Note,
+                canEdit
+            });
+        }
+
+        // ================== UPDATE ==================
+        // PUT: /api/ClassSessions/{id}
+        [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> UpdateOne([FromRoute] int id, [FromBody] UpdateSessionDto dto, CancellationToken ct)
+        {
+            var s = await _db.ClassSessions
+                .Include(x => x.Class)
+                .FirstOrDefaultAsync(x => x.SessionId == id, ct);
+
+            if (s == null) return NotFound(new { message = "Buổi học không tồn tại." });
+
+            // Parse new values (fallback về giá trị cũ nếu null)
+            var newDate = TryParseDateOnly(dto.SessionDate, out var d) ? d : s.SessionDate;
+            var newStart = TryParseTime(dto.StartTime, out var st) ? st : s.StartTime;
+            var newEnd = TryParseTime(dto.EndTime, out var et) ? et : s.EndTime;
+            var newTeacherId = dto.TeacherId.HasValue ? dto.TeacherId : s.TeacherId;
+
+            if (newEnd <= newStart)
+                return BadRequest(new { message = "Giờ kết thúc phải lớn hơn giờ bắt đầu." });
+
+            // Role-based edit window
+            var now = DateTime.Now;
+            var today = DateOnly.FromDateTime(now);
+            var endOfMonth = DateOnly.FromDateTime(new DateTime(now.Year, now.Month, DateTime.DaysInMonth(now.Year, now.Month)));
+
+            if (User.IsInRole("Admin"))
+            {
+                // Admin: chỉ cho sửa ngày trong [hôm nay .. hết tháng]
+                if (newDate < today || newDate > endOfMonth)
+                    return Conflict(new { message = "Admin chỉ được sửa buổi từ hôm nay đến hết tháng hiện tại." });
+            }
+            else
+            {
+                // Giáo viên: không cho sửa nếu đã/đang diễn ra (theo giờ cũ)
+                var originalStartLocal = new DateTime(s.SessionDate.Year, s.SessionDate.Month, s.SessionDate.Day,
+                                                      s.StartTime.Hours, s.StartTime.Minutes, 0, DateTimeKind.Local);
+                if (DateTime.Now >= originalStartLocal)
+                    return Conflict(new { message = $"Buổi {DMY(s.SessionDate)} {HHMM(s.StartTime)} đã/đang diễn ra, không thể chỉnh sửa." });
+            }
+
+            // 1) Trùng buổi trong CÙNG LỚP (block)
+            var dupInClass = await FindDuplicateSessionInClassAsync(s.ClassID, newDate, newStart, newEnd, excludeSessionId: id, ct);
+            if (dupInClass != null)
+            {
+                return Conflict(new
+                {
+                    error = "DuplicateSession",
+                    message = $"Lớp {dupInClass.ClassName} đã có buổi {dupInClass.Date} {dupInClass.Start}-{dupInClass.End}.",
+                    duplicate = dupInClass
+                });
+            }
+
+            // 2) Trùng lịch GIÁO VIÊN (block)
+            if (newTeacherId.HasValue)
+            {
+                var overlap = await FindTeacherOverlapSessionAsync(newTeacherId.Value, newDate, newStart, newEnd, excludeSessionId: id, ct);
+                if (overlap != null)
+                {
+                    return Conflict(new
+                    {
+                        error = "TeacherOverlap",
+                        message = $"{overlap.TeacherName} trùng lịch ở lớp {overlap.ClassName} — {overlap.Date} {overlap.Start}-{overlap.End}.",
+                        conflicts = new[] { overlap }
+                    });
+                }
+            }
+
+            // 3) Cảnh báo trùng lịch HỌC SINH (only warn; allow override)
+            var studentWarn = await FindStudentOverlapsAsync(s.ClassID, newDate, newStart, newEnd, excludeSessionId: id, ct);
+            if (studentWarn.Count > 0 && dto.OverrideStudentConflicts != true)
+            {
+                return Conflict(new
+                {
+                    error = "StudentOverlapWarning",
+                    message = "Có học sinh trùng khung giờ với lớp khác. Bấm tiếp tục để vẫn lưu.",
+                    conflicts = studentWarn
+                });
+            }
+
+            // Apply update
+            s.SessionDate = newDate;
+            s.StartTime = newStart;
+            s.EndTime = newEnd;
+            s.TeacherId = newTeacherId;
+            if (dto.Note != null) s.Note = string.IsNullOrWhiteSpace(dto.Note) ? null : dto.Note.Trim();
+            if (dto.Status.HasValue)
+            {
+                if (!Enum.IsDefined(typeof(SessionStatus), dto.Status.Value))
+                    return BadRequest(new { message = "Status không hợp lệ." });
+                s.Status = (SessionStatus)dto.Status.Value;
+            }
+            s.IsAutoGenerated = false;
+
+            await _db.SaveChangesAsync(ct);
+
+            return Ok(new
+            {
+                sessionId = s.SessionId,
+                classId = s.ClassID,
+                sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
+                startTime = s.StartTime.ToString(@"hh\:mm"),
+                endTime = s.EndTime.ToString(@"hh\:mm"),
+                status = (int)s.Status,
+                isAutoGenerated = s.IsAutoGenerated,
+                teacherId = s.TeacherId,
+                note = s.Note
+            });
+        }
+        // ================== CHECK STUDENT OVERLAP (compat FE) ==================
+        public sealed class CheckStudentOverlapDto
+        {
+            public int? Id { get; set; }              // sessionId
+            public string? SessionDate { get; set; }  // yyyy-MM-dd (tùy chọn nếu muốn preflight cho giá trị mới)
+            public string? StartTime { get; set; }    // HH:mm
+            public string? EndTime { get; set; }      // HH:mm
+            public int? TeacherId { get; set; }       // không dùng ở đây nhưng giữ tương thích payload cũ
+        }
+
+        // 1) POST body: { id, sessionDate?, startTime?, endTime? }
+        [HttpPost("check-student-overlap")]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> CheckStudentOverlapPost([FromBody] CheckStudentOverlapDto body, CancellationToken ct)
+        {
+            if (body == null || !body.Id.HasValue)
+                return BadRequest(new { error = "BadRequest", message = "Thiếu id buổi học." });
+
+            return await CheckStudentOverlapCore(body.Id.Value, body.SessionDate, body.StartTime, body.EndTime, ct);
+        }
+
+        // 2) GET /api/ClassSessions/check-student-overlap?id=87&sessionDate=...&startTime=...&endTime=...
+        [HttpGet("check-student-overlap")]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> CheckStudentOverlapGet([FromQuery] int? id,
+            [FromQuery] string? sessionDate, [FromQuery] string? startTime, [FromQuery] string? endTime, CancellationToken ct)
+        {
+            if (!id.HasValue)
+                return BadRequest(new { error = "BadRequest", message = "Thiếu id buổi học." });
+
+            return await CheckStudentOverlapCore(id.Value, sessionDate, startTime, endTime, ct);
+        }
+
+        // 3) GET /api/ClassSessions/{id}/check-student-overlap  (thêm route phụ cho một số FE cũ)
+        [HttpGet("{id:int}/check-student-overlap")]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<IActionResult> CheckStudentOverlapRoute([FromRoute] int id, CancellationToken ct)
+            => await CheckStudentOverlapCore(id, null, null, null, ct);
+
+        // Core logic dùng lại validator đã viết
+        private async Task<IActionResult> CheckStudentOverlapCore(int id, string? dateIso, string? startHHmm, string? endHHmm, CancellationToken ct)
+        {
+            var s = await _db.ClassSessions.FirstOrDefaultAsync(x => x.SessionId == id, ct);
+            if (s == null)
+                return NotFound(new { error = "NotFound", message = "Buổi học không tồn tại hoặc đã bị xóa." });
+
+            // Lấy giá trị muốn check: dùng payload nếu có, ngược lại lấy theo buổi hiện tại
+            var date = TryParseDateOnly(dateIso, out var d) ? d : s.SessionDate;
+            var start = TryParseTime(startHHmm, out var st) ? st : s.StartTime;
+            var end = TryParseTime(endHHmm, out var et) ? et : s.EndTime;
+
+            if (end <= start)
+                return BadRequest(new { error = "BadTimeRange", message = "Giờ kết thúc phải lớn hơn giờ bắt đầu." });
+
+            var warns = await FindStudentOverlapsAsync(s.ClassID, date, start, end, excludeSessionId: id, ct);
+            return Ok(new
+            {
+                message = warns.Count == 0 ? "Không có xung đột học sinh." : "Có học sinh trùng khung giờ với lớp khác.",
+                count = warns.Count,
+                conflicts = warns
+            });
+        }
+
+        // ================== SYNC THÁNG ==================
+        // POST: /api/ClassSessions/sync-month/{classId}?year=YYYY&month=MM
+        [HttpPost("sync-month/{classId:int}")]
+        [Authorize(Policy = "AdminOnly")]
+        public async Task<IActionResult> SyncMonth([FromRoute] int classId, [FromQuery] int? year, [FromQuery] int? month, CancellationToken ct)
+        {
+            var r = await _syncService.SyncMonthAsync(classId, year, month, ct);
+            return Ok(new
+            {
+                created = r.Created,
+                updated = r.Updated,
+                deleted = r.Deleted,
+                skippedTeacherConflicts = r.SkippedTeacherConflicts
+            });
+        }
+
+        // ================== INTERNAL CHECKERS ==================
+        /// <summary>
+        /// Trả về duplicate trong cùng lớp nếu có, null nếu không.
+        /// </summary>
+        private async Task<DuplicateSessionInfo?> FindDuplicateSessionInClassAsync(int classId, DateOnly date, TimeSpan start, TimeSpan end, int? excludeSessionId, CancellationToken ct)
+        {
+            var sameDay = await _db.ClassSessions
+                .AsNoTracking()
+                .Where(s => s.ClassID == classId && s.SessionDate == date && (!excludeSessionId.HasValue || s.SessionId != excludeSessionId.Value))
+                .Select(s => new
+                {
+                    s.SessionId,
+                    s.ClassID,
+                    s.SessionDate,
+                    s.StartTime,
+                    s.EndTime
+                })
+                .ToListAsync(ct);
+
+            var hit = sameDay.FirstOrDefault(x => Overlap(start, end, x.StartTime, x.EndTime));
+            if (hit == null) return null;
+
+            var className = await GetClassNameAsync(classId, ct);
+            return new DuplicateSessionInfo
+            {
+                SessionId = hit.SessionId,
+                ClassId = classId,
+                ClassName = className,
+                Date = DMY(hit.SessionDate),
+                Start = HHMM(hit.StartTime),
+                End = HHMM(hit.EndTime)
+            };
+        }
 
         private async Task<string> GetClassNameAsync(int classId, CancellationToken ct)
         {
@@ -100,67 +457,16 @@ namespace ArtCenterOnline.Server.Controllers
         }
 
         /// <summary>
-        /// Tìm 1 buổi khác của GV trùng giờ trong cùng ngày, trả chi tiết để hiển thị.
+        /// Tìm 1 buổi khác của GV trùng khung giờ (cùng ngày). Null nếu không có.
         /// </summary>
-        private async Task<object?> FindTeacherOverlapSessionAsync(
-            int teacherId, DateOnly date, TimeSpan start, TimeSpan end, int? ignoreSessionId, CancellationToken ct)
+        private async Task<TeacherOverlapInfo?> FindTeacherOverlapSessionAsync(int teacherId, DateOnly date, TimeSpan start, TimeSpan end, int? excludeSessionId, CancellationToken ct)
         {
-            var q = _db.ClassSessions
+            var sameDay = await _db.ClassSessions
+                .AsNoTracking()
                 .Include(s => s.Class)
-                .Include(s => s.Teacher)
-                .Where(s =>
-                    s.TeacherId == teacherId &&
-                    s.SessionDate == date &&
-                    s.StartTime < end && s.EndTime > start);
-
-            if (ignoreSessionId.HasValue)
-                q = q.Where(s => s.SessionId != ignoreSessionId.Value);
-
-            var row = await q
-                .OrderBy(s => s.StartTime)
-                .Select(s => new
-                {
-                    s.SessionId,
-                    s.ClassID,
-                    ClassName = s.Class != null ? s.Class.ClassName : $"#{s.ClassID}",
-                    s.SessionDate,
-                    s.StartTime,
-                    s.EndTime,
-                    TeacherId = s.TeacherId,
-                    TeacherName = s.Teacher != null ? s.Teacher.TeacherName : null
-                })
-                .FirstOrDefaultAsync(ct);
-
-            if (row == null) return null;
-
-            return new
-            {
-                type = "teacher",
-                sessionId = row.SessionId,
-                classId = row.ClassID,
-                className = row.ClassName,
-                date = DMY(row.SessionDate),
-                start = HHMM(row.StartTime),
-                end = HHMM(row.EndTime),
-                teacherId = row.TeacherId,
-                teacherName = row.TeacherName ?? $"GV #{row.TeacherId}"
-            };
-        }
-
-        /// <summary>
-        /// Tìm trùng buổi trong cùng lớp: cùng ngày + cùng khung giờ.
-        /// </summary>
-        private async Task<object?> FindDuplicateSessionInClassAsync(
-            int classId, DateOnly date, TimeSpan start, TimeSpan end, int? ignoreSessionId, CancellationToken ct)
-        {
-            var dup = await _db.ClassSessions
-                .Include(s => s.Class)
-                .Where(s =>
-                    s.ClassID == classId &&
-                    s.SessionDate == date &&
-                    s.StartTime == start &&
-                    s.EndTime == end &&
-                    (!ignoreSessionId.HasValue || s.SessionId != ignoreSessionId.Value))
+                .Where(s => s.TeacherId == teacherId
+                         && s.SessionDate == date
+                         && (!excludeSessionId.HasValue || s.SessionId != excludeSessionId.Value))
                 .Select(s => new
                 {
                     s.SessionId,
@@ -170,277 +476,109 @@ namespace ArtCenterOnline.Server.Controllers
                     s.StartTime,
                     s.EndTime
                 })
-                .FirstOrDefaultAsync(ct);
+                .ToListAsync(ct); // ToList rồi mới Overlap để tránh EF translate method
 
-            if (dup == null) return null;
+            var hit = sameDay.FirstOrDefault(x => Overlap(start, end, x.StartTime, x.EndTime));
+            if (hit == null) return null;
 
-            return new
+            return new TeacherOverlapInfo
             {
-                type = "duplicate",
-                sessionId = dup.SessionId,
-                classId = dup.ClassID,
-                className = dup.ClassName,
-                date = DMY(dup.SessionDate),
-                start = HHMM(dup.StartTime),
-                end = HHMM(dup.EndTime)
+                SessionId = hit.SessionId,
+                ClassId = hit.ClassID,
+                ClassName = hit.ClassName,
+                Date = DMY(hit.SessionDate),
+                Start = HHMM(hit.StartTime),
+                End = HHMM(hit.EndTime),
+                TeacherId = teacherId,
+                TeacherName = await GetTeacherNameAsync(teacherId, ct)
             };
         }
 
-        // ================== LIST (Calendar & Full) ==================
-        // GET: /api/ClassSessions?from=yyyy-MM-dd&to=yyyy-MM-dd&classId=..&teacherId=..&status=..&forCalendar=true
-        [HttpGet]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<IActionResult> Query(
-            [FromQuery] string? from,
-            [FromQuery] string? to,
-            [FromQuery] int? classId,
-            [FromQuery] int? teacherId,
-            [FromQuery] int? status,
-            [FromQuery] bool forCalendar = false,
-            CancellationToken ct = default)
+        /// <summary>
+        /// Tìm các cảnh báo học sinh trùng giờ với lớp khác trong cùng ngày.
+        /// Trả về list { studentId, studentName, conflict: { classId, className, date, start, end } }
+        /// </summary>
+        private async Task<List<StudentConflictInfo>> FindStudentOverlapsAsync(int classId, DateOnly date, TimeSpan start, TimeSpan end, int? excludeSessionId, CancellationToken ct)
         {
-            var q = _db.ClassSessions.AsNoTracking().AsQueryable();
+            var result = new List<StudentConflictInfo>();
 
-            if (TryParseDateOnly(from, out var fromD)) q = q.Where(x => x.SessionDate >= fromD);
-            if (TryParseDateOnly(to, out var toD)) q = q.Where(x => x.SessionDate <= toD);
-            if (classId.HasValue) q = q.Where(x => x.ClassID == classId.Value);
-            if (teacherId.HasValue) q = q.Where(x => x.TeacherId == teacherId.Value);
-            if (status.HasValue) q = q.Where(x => (int)x.Status == status.Value);
+            // Học sinh active của lớp này
+            var students = await (from cs in _db.ClassStudents
+                                  join st in _db.Students on cs.StudentId equals st.StudentId
+                                  where cs.ClassID == classId && cs.IsActive
+                                  select new { st.StudentId, st.StudentName })
+                                  .ToListAsync(ct);
+            if (students.Count == 0) return result;
 
-            q = q.OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime);
+            var studentIds = students.Select(s => s.StudentId).ToList();
 
-            if (forCalendar)
-            {
-                var items = await q
-                    .Include(s => s.Class)
-                    .Include(s => s.Teacher)
-                    .Select(s => new
-                    {
-                        sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
-                        startTime = s.StartTime.ToString(@"hh\:mm"),
-                        endTime = s.EndTime.ToString(@"hh\:mm"),
-                        status = (int)s.Status,
-                        classId = s.ClassID,
-                        className = s.Class != null ? s.Class.ClassName : $"ID {s.ClassID}",
-                        teacherName = s.Teacher != null ? s.Teacher.TeacherName : null
-                    })
-                    .ToListAsync(ct);
+            // Các lớp khác mà các HS này đang active
+            var otherClassIds = await _db.ClassStudents
+                .AsNoTracking()
+                .Where(cs => studentIds.Contains(cs.StudentId) && cs.IsActive && cs.ClassID != classId)
+                .Select(cs => cs.ClassID)
+                .Distinct()
+                .ToListAsync(ct);
 
-                return Ok(items);
-            }
+            if (otherClassIds.Count == 0) return result;
 
-            var full = await q
+            // Các buổi trong ngày của các lớp kia (trừ buổi hiện đang sửa)
+            var otherSessionsSameDay = await _db.ClassSessions
+                .AsNoTracking()
                 .Include(s => s.Class)
-                .Include(s => s.Teacher)
+                .Where(s => otherClassIds.Contains(s.ClassID)
+                         && s.SessionDate == date
+                         && (!excludeSessionId.HasValue || s.SessionId != excludeSessionId.Value))
                 .Select(s => new
                 {
-                    sessionId = s.SessionId,
-                    classId = s.ClassID,
-                    className = s.Class != null ? s.Class.ClassName : $"ID {s.ClassID}",
-                    sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
-                    startTime = s.StartTime.ToString(@"hh\:mm"),
-                    endTime = s.EndTime.ToString(@"hh\:mm"),
-                    status = (int)s.Status,
-                    isAutoGenerated = s.IsAutoGenerated,
-                    teacherId = s.TeacherId,
-                    teacherName = s.Teacher != null ? s.Teacher.TeacherName : null,
-                    note = s.Note
+                    s.SessionId,
+                    s.ClassID,
+                    ClassName = s.Class != null ? s.Class.ClassName : $"#{s.ClassID}",
+                    s.SessionDate,
+                    s.StartTime,
+                    s.EndTime
                 })
                 .ToListAsync(ct);
 
-            return Ok(full);
-        }
+            if (otherSessionsSameDay.Count == 0) return result;
 
-        // ================== DETAIL ==================
-        // GET: /api/ClassSessions/{sessionId}
-        [HttpGet("{sessionId:int}")]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<IActionResult> GetOne([FromRoute] int sessionId, CancellationToken ct)
-        {
-            var s = await _db.ClassSessions
+            // Map: studentId -> classes active (other classes)
+            var mapStudentOtherClasses = await _db.ClassStudents
                 .AsNoTracking()
-                .Include(x => x.Class)
-                .Include(x => x.Teacher)
-                .FirstOrDefaultAsync(x => x.SessionId == sessionId, ct);
-            if (s == null) return NotFound();
+                .Where(cs => studentIds.Contains(cs.StudentId) && cs.IsActive && cs.ClassID != classId)
+                .GroupBy(cs => cs.StudentId)
+                .Select(g => new { StudentId = g.Key, ClassIds = g.Select(x => x.ClassID).Distinct().ToList() })
+                .ToListAsync(ct);
 
-            var startLocal = new DateTime(s.SessionDate.Year, s.SessionDate.Month, s.SessionDate.Day,
-                                          s.StartTime.Hours, s.StartTime.Minutes, 0, DateTimeKind.Local);
-            var canEdit = DateTime.Now < startLocal;
+            var dictStudentOtherClassIds = mapStudentOtherClasses.ToDictionary(x => x.StudentId, x => x.ClassIds);
 
-            return Ok(new
+            foreach (var stu in students)
             {
-                sessionId = s.SessionId,
-                classId = s.ClassID,
-                className = s.Class != null ? s.Class.ClassName : $"ID {s.ClassID}",
-                sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
-                startTime = s.StartTime.ToString(@"hh\:mm"),
-                endTime = s.EndTime.ToString(@"hh\:mm"),
-                status = (int)s.Status,
-                isAutoGenerated = s.IsAutoGenerated,
-                teacherId = s.TeacherId,
-                teacherName = s.Teacher != null ? s.Teacher.TeacherName : null,
-                note = s.Note,
-                canEdit
-            });
-        }
+                if (!dictStudentOtherClassIds.TryGetValue(stu.StudentId, out var clsIds)) continue;
 
-        // ================== PREFLIGHT: Cảnh báo trùng HS theo BUỔI ==================
-        // POST: /api/ClassSessions/{sessionId}/check-student-overlap
-        [HttpPost("{sessionId:int}/check-student-overlap")]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<IActionResult> CheckStudentOverlapForSession(
-            [FromRoute] int sessionId,
-            [FromBody] UpdateSessionDto? dto,
-            CancellationToken ct)
-        {
-            var s = await _db.ClassSessions
-                .Include(x => x.Class)
-                .FirstOrDefaultAsync(x => x.SessionId == sessionId, ct);
-            if (s == null) return NotFound(new { message = "Buổi học không tồn tại." });
+                var hits = otherSessionsSameDay
+                    .Where(os => clsIds.Contains(os.ClassID) && Overlap(start, end, os.StartTime, os.EndTime))
+                    .ToList();
 
-            var newDate = TryParseDateOnly(dto?.SessionDate, out var d) ? d : s.SessionDate;
-            var newStart = TryParseTime(dto?.StartTime, out var st) ? st : s.StartTime;
-            var newEnd = TryParseTime(dto?.EndTime, out var et) ? et : s.EndTime;
-            if (newEnd <= newStart) return BadRequest(new { message = "Giờ kết thúc phải lớn hơn giờ bắt đầu." });
-
-            var warnings = await _studentValidator.CheckForSessionAsync(
-                s.ClassID, newDate, newStart, newEnd, sessionId, ct);
-
-            return Ok(warnings); // [] nếu không có cảnh báo
-        }
-
-        // ================== PREFLIGHT: Giáo viên (trả CHI TIẾT nếu trùng) ==================
-        // POST: /api/ClassSessions/{id}/preflight-teacher
-        [HttpPost("{id:int}/preflight-teacher")]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<IActionResult> PreflightTeacher(int id, [FromBody] PreflightTeacherSessionDto dto, CancellationToken ct)
-        {
-            if (id != dto.SessionId) return BadRequest(new { error = "Invalid", message = "SessionId không khớp." });
-            if (!TryParseDateOnly(dto.SessionDate, out var date) ||
-                !TryParseTime(dto.StartTime, out var start) ||
-                !TryParseTime(dto.EndTime, out var end))
-                return BadRequest(new { error = "InvalidTime", message = "Tham số thời gian không hợp lệ." });
-            if (end <= start) return BadRequest(new { error = "InvalidTime", message = "Giờ kết thúc phải lớn hơn giờ bắt đầu." });
-
-            var detail = await FindTeacherOverlapSessionAsync(dto.TeacherId, date, start, end, id, ct);
-            if (detail != null)
-            {
-                var tName = await GetTeacherNameAsync(dto.TeacherId, ct);
-                var cName = (string?)detail.GetType().GetProperty("className")?.GetValue(detail) ?? "";
-                var dmy = (string?)detail.GetType().GetProperty("date")?.GetValue(detail) ?? DMY(date);
-                var st = (string?)detail.GetType().GetProperty("start")?.GetValue(detail) ?? HHMM(start);
-                var en = (string?)detail.GetType().GetProperty("end")?.GetValue(detail) ?? HHMM(end);
-
-                return Conflict(new
+                foreach (var h in hits)
                 {
-                    error = "TeacherOverlap",
-                    message = $"{tName} trùng lịch ở lớp {cName} — {dmy} {st}-{en}.",
-                    conflicts = new[] { detail }
-                });
-            }
-
-            return Ok(new { conflict = false });
-        }
-
-        // ================== UPDATE/PATCH 1 BUỔI ==================
-        // PUT: /api/ClassSessions/{id}
-        [HttpPut("{id:int}")]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<IActionResult> UpdateOne(int id, [FromBody] UpdateSessionDto dto, CancellationToken ct)
-        {
-            var s = await _db.ClassSessions.Include(x => x.Class).FirstOrDefaultAsync(x => x.SessionId == id, ct);
-            if (s == null) return NotFound(new { message = "Buổi học không tồn tại." });
-
-            // Không cho sửa nếu đã/đang diễn ra (theo giờ cũ)
-            var originalStartLocal = new DateTime(s.SessionDate.Year, s.SessionDate.Month, s.SessionDate.Day,
-                                                  s.StartTime.Hours, s.StartTime.Minutes, 0, DateTimeKind.Local);
-            if (DateTime.Now >= originalStartLocal)
-                return Conflict(new { message = $"Buổi {DMY(s.SessionDate)} {HHMM(s.StartTime)} đã/đang diễn ra, không thể chỉnh sửa." });
-
-            // Lấy giá trị mới
-            var newDate = TryParseDateOnly(dto.SessionDate, out var d) ? d : s.SessionDate;
-            var newStart = TryParseTime(dto.StartTime, out var st) ? st : s.StartTime;
-            var newEnd = TryParseTime(dto.EndTime, out var et) ? et : s.EndTime;
-            if (newEnd <= newStart) return BadRequest(new { message = "Giờ kết thúc phải lớn hơn giờ bắt đầu." });
-
-            // 1) Trùng buổi trong CÙNG LỚP (cùng ngày + cùng khung giờ)
-            var dup = await FindDuplicateSessionInClassAsync(s.ClassID, newDate, newStart, newEnd, id, ct);
-            if (dup != null)
-            {
-                var cName = (string?)dup.GetType().GetProperty("className")?.GetValue(dup) ?? await GetClassNameAsync(s.ClassID, ct);
-                var dmy = (string?)dup.GetType().GetProperty("date")?.GetValue(dup) ?? DMY(newDate);
-                var stv = (string?)dup.GetType().GetProperty("start")?.GetValue(dup) ?? HHMM(newStart);
-                var env = (string?)dup.GetType().GetProperty("end")?.GetValue(dup) ?? HHMM(newEnd);
-
-                return Conflict(new
-                {
-                    error = "DuplicateSession",
-                    message = $"Lớp {cName} đã có buổi {dmy} {stv}-{env}.",
-                    duplicate = dup
-                });
-            }
-
-            // 2) Giáo viên có bận buổi khác cùng ngày & chồng giờ?
-            int? teacherToUse = dto.TeacherId.HasValue ? dto.TeacherId : s.TeacherId;
-            if (teacherToUse.HasValue)
-            {
-                var detail = await FindTeacherOverlapSessionAsync(teacherToUse.Value, newDate, newStart, newEnd, id, ct);
-                if (detail != null)
-                {
-                    var tName = await GetTeacherNameAsync(teacherToUse.Value, ct);
-                    var cName = (string?)detail.GetType().GetProperty("className")?.GetValue(detail) ?? "";
-                    var dmy = (string?)detail.GetType().GetProperty("date")?.GetValue(detail) ?? DMY(newDate);
-                    var stv = (string?)detail.GetType().GetProperty("start")?.GetValue(detail) ?? HHMM(newStart);
-                    var env = (string?)detail.GetType().GetProperty("end")?.GetValue(detail) ?? HHMM(newEnd);
-
-                    return Conflict(new
+                    result.Add(new StudentConflictInfo
                     {
-                        error = "TeacherOverlap",
-                        message = $"{tName} trùng lịch ở lớp {cName} — {dmy} {stv}-{env}.",
-                        conflicts = new[] { detail }
+                        StudentId = stu.StudentId,
+                        StudentName = stu.StudentName,
+                        Conflict = new ConflictSlot
+                        {
+                            ClassId = h.ClassID,
+                            ClassName = h.ClassName,
+                            Date = DMY(h.SessionDate),
+                            Start = HHMM(h.StartTime),
+                            End = HHMM(h.EndTime)
+                        }
                     });
                 }
             }
 
-            // Áp dụng cập nhật
-            s.SessionDate = newDate;
-            s.StartTime = newStart;
-            s.EndTime = newEnd;
-            s.TeacherId = dto.TeacherId; // có thể null
-            if (dto.Note != null) s.Note = string.IsNullOrWhiteSpace(dto.Note) ? null : dto.Note.Trim();
-            if (dto.Status.HasValue)
-            {
-                if (!Enum.IsDefined(typeof(SessionStatus), dto.Status.Value))
-                    return BadRequest(new { message = "Status không hợp lệ." });
-                s.Status = (SessionStatus)dto.Status.Value;
-            }
-            s.IsAutoGenerated = false; // mọi chỉnh sửa trở thành thủ công
-
-            await _db.SaveChangesAsync(ct);
-
-            return Ok(new
-            {
-                sessionId = s.SessionId,
-                classId = s.ClassID,
-                sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
-                startTime = s.StartTime.ToString(@"hh\:mm"),
-                endTime = s.EndTime.ToString(@"hh\:mm"),
-                status = (int)s.Status,
-                isAutoGenerated = s.IsAutoGenerated,
-                teacherId = s.TeacherId,
-                note = s.Note
-            });
-        }
-
-        // ================== SYNC THÁNG ==================
-        // POST: /api/ClassSessions/sync-month/{classId}?year=YYYY&month=MM
-        [HttpPost("sync-month/{classId:int}")]
-        [Authorize(Policy = "AdminOnly")]
-        public async Task<IActionResult> SyncMonth(int classId, [FromQuery] int? year, [FromQuery] int? month, CancellationToken ct)
-        {
-            var r = await _syncService.SyncMonthAsync(classId, year, month, ct);
-            return Ok(new { created = r.Created, updated = r.Updated, deleted = r.Deleted, skippedTeacherConflicts = r.SkippedTeacherConflicts });
+            return result;
         }
     }
 }
