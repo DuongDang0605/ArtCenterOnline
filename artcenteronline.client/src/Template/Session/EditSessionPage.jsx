@@ -1,320 +1,398 @@
-﻿/* eslint-disable no-unused-vars */
-// src/Template/Session/EditSessionPage.jsx
+﻿// src/Template/Session/EditSessionPage.jsx
 import React, { useEffect, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { getSession, updateSession, checkStudentOverlapForSession } from "./sessions";
-import { getClasses } from "../Class/classes";
+import { getTeachers } from "../Teacher/teachers"; // <-- lấy danh sách giáo viên theo tên
+import { useAuth } from "../../auth/authCore";
 import OverlapWarningModal from "../../component/OverlapWarningModal";
 
-// Lấy danh sách giáo viên
-let fetchTeachers = async () => [];
-try {
-    const modPromise = import("../Teacher/teachers");
-    fetchTeachers = async () => {
-        try {
-            const mod = await modPromise;
-            return typeof mod.getTeachers === "function" ? mod.getTeachers() : [];
-        } catch {
-            return [];
-        }
-    };
-} catch { /* empty */ }
-
-function pad2(n) { return String(n).padStart(2, "0"); }
-function toTimeInput(s) {
-    if (!s) return "";
-    const m = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(s);
-    if (m) return `${m[1]}:${m[2]}`;
-    const d = new Date(`1970-01-01T${s}`);
-    if (isNaN(d)) return "";
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function pickErr(e) {
+    return (
+        e?.message ||
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.response?.statusText ||
+        "Đã có lỗi xảy ra."
+    );
 }
-const toHHMMSS = (t) => `${toTimeInput(t)}:00`;
-const anyToISO = (v) => (v || "").slice(0, 10);
-const isoToDMY = (iso) => {
+
+function isoToDMY(iso) {
     if (!iso) return "";
     const [y, m, d] = String(iso).split("-");
     return `${d}/${m}/${y}`;
-};
+}
+function dmyToISO(dmy) {
+    if (!dmy) return "";
+    const parts = dmy.split("/");
+    if (parts.length !== 3) return "";
+    const [d, m, y] = parts;
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function HHMM(t) {
+    if (!t) return "";
+    const [hh, mm] = String(t).split(":");
+    return `${String(hh).padStart(2, "0")}:${String(mm || "0").padStart(2, "0")}`;
+}
+
+/** Convert BE conflicts (object[]) -> string[] for OverlapWarningModal */
+function conflictsToWarnings(conflicts) {
+    if (!Array.isArray(conflicts)) return [];
+    return conflicts.map((it) => {
+        const sid = it.studentId ?? it.StudentId ?? "";
+        const sname = it.studentName ?? it.StudentName ?? (sid ? `HS #${sid}` : "Học sinh");
+        const c = it.conflict ?? it.Conflict ?? {};
+        const cid = c.classId ?? c.ClassId ?? "";
+        const cname = c.className ?? c.ClassName ?? (cid ? `Lớp #${cid}` : "lớp khác");
+        const date = c.date ?? c.Date ?? "";
+        const start = c.start ?? c.Start ?? "";
+        const end = c.end ?? c.End ?? "";
+        const slot = [date, [start, end].filter(Boolean).join("-")].filter(Boolean).join(" ");
+        return `${sname} ${slot ? `(${slot})` : ""} trùng với ${cname}${cid ? ` (ID ${cid})` : ""}.`;
+    });
+}
 
 export default function EditSessionPage() {
     const { id } = useParams();
-    const nav = useNavigate();
+    const navigate = useNavigate();
+    const { roles: ctxRoles = [] } = useAuth();
+    const isAdmin = ctxRoles.includes("Admin");
 
-    const [info, setInfo] = useState({});
-    const [classes, setClasses] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState("");
 
-    const [sessionDateISO, setSessionDateISO] = useState("");
-    const [sessionDateText, setSessionDateText] = useState("");
-
-    const [startTime, setStartTime] = useState("00:00:00");
-    const [endTime, setEndTime] = useState("00:00:00");
-    const [teacherId, setTeacherId] = useState("");
+    // form state
+    const [className, setClassName] = useState("");
+    const [sessionDate, setSessionDate] = useState(""); // yyyy-MM-dd
+    const [sessionDateText, setSessionDateText] = useState(""); // dd/MM/yyyy
+    const [startTime, setStartTime] = useState("08:00");
+    const [endTime, setEndTime] = useState("09:30");
     const [status, setStatus] = useState(0);
     const [note, setNote] = useState("");
+    const [canEdit, setCanEdit] = useState(false);
 
+    // teacher (theo tên)
     const [teachers, setTeachers] = useState([]);
+    const [teacherId, setTeacherId] = useState(""); // dùng string cho <select>
+    const [teacherName, setTeacherName] = useState("");
 
-    // ===== Toast lỗi: đếm ngược 5s + progress =====
-    const AUTO_DISMISS = 5000;
-    const [err, setErr] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    const showError = (msg) => {
-        setErr(msg || "");
-        if (msg) setRemaining(AUTO_DISMISS);
-    };
-    useEffect(() => {
-        if (!err) return;
-        const startedAt = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
-            setRemaining(left);
-            if (left === 0) setErr("");
-        }, 1000);
-        return () => clearInterval(iv);
-    }, [err, AUTO_DISMISS]);
-
-    const [saving, setSaving] = useState(false);
+    // warning modal state
+    const [warnOpen, setWarnOpen] = useState(false);
     const [warnings, setWarnings] = useState([]);
+    const [pendingPayload, setPendingPayload] = useState(null);
 
+    // nạp chi tiết buổi
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            setLoading(true);
+            setErr("");
+            try {
+                const data = await getSession(id);
+                if (!alive) return;
+
+                setClassName(data.className ?? `#${data.classId}`);
+                setSessionDate(data.sessionDate);
+                setSessionDateText(isoToDMY(data.sessionDate));
+                setStartTime(HHMM(data.startTime));
+                setEndTime(HHMM(data.endTime));
+                setStatus(Number(data.status ?? 0));
+                setNote(data.note ?? "");
+                setCanEdit(!!data.canEdit);
+
+                // teacher hiện tại
+                const curTid = data.teacherId ?? null;
+                const curTname = data.teacherName ?? "";
+                setTeacherId(curTid == null ? "" : String(curTid));
+                setTeacherName(curTname);
+            } catch (e) {
+                setErr(pickErr(e));
+            } finally {
+                setLoading(false);
+            }
+        })();
+        return () => {
+            alive = false;
+        };
+    }, [id]);
+
+    // nạp danh sách giáo viên để chọn theo tên
     useEffect(() => {
         let alive = true;
         (async () => {
             try {
-                const [one, ts, cls] = await Promise.all([
-                    getSession(id),
-                    fetchTeachers(),
-                    getClasses().catch(() => []),
-                ]);
+                const list = await getTeachers(); // mong đợi trả mảng { teacherId, teacherName }
                 if (!alive) return;
-
-                setTeachers(Array.isArray(ts) ? ts : []);
-                setClasses(Array.isArray(cls) ? cls : []);
-
-                setInfo(one || {});
-                const iso = anyToISO(one.sessionDate ?? one.SessionDate);
-                setSessionDateISO(iso);
-                setSessionDateText(isoToDMY(iso));
-
-                setStartTime(one.startTime ?? one.StartTime ?? "00:00:00");
-                setEndTime(one.endTime ?? one.EndTime ?? "00:00:00");
-                setTeacherId(one.teacherId ?? one.TeacherId ?? "");
-                setStatus(Number(one.status ?? one.Status ?? 0));
-                setNote(one.note || "");
-            } catch (e) {
-                showError(e?.message || "Không tải được buổi học");
+                setTeachers(Array.isArray(list) ? list : []);
+                // nếu tên trống nhưng có id, cố gắng map tên từ list
+                if (!teacherName && teacherId) {
+                    const found = list.find(
+                        (t) => String(t.teacherId ?? t.TeacherId) === String(teacherId)
+                    );
+                    if (found) setTeacherName(found.teacherName ?? found.TeacherName ?? "");
+                }
+            } catch {
+                // im lặng: nếu lỗi vẫn cho phép giữ id hiện tại
             }
         })();
-        return () => { alive = false; };
-    }, [id]);
-
-    function validate() {
-        if (!sessionDateISO) return "Vui lòng chọn ngày.";
-        if (teacherId === "" || teacherId == null) return "Vui lòng chọn giáo viên.";
-        const s = new Date(`${sessionDateISO}T${toTimeInput(startTime)}:00`);
-        const e = new Date(`${sessionDateISO}T${toTimeInput(endTime)}:00`);
-        if (!(s < e)) return "Giờ kết thúc phải lớn hơn giờ bắt đầu.";
-        return "";
-    }
-
-    async function doSave() {
-        const payload = {
-            SessionDate: sessionDateISO,
-            StartTime: toHHMMSS(startTime),
-            EndTime: toHHMMSS(endTime),
-            TeacherId: teacherId === "" ? null : Number(teacherId),
-            Note: note?.trim() || null,
-            Status: Number(status ?? 0),
+        return () => {
+            alive = false;
         };
-        await updateSession(Number(id), payload);
+    }, [teacherId]); // khi teacherId thay đổi mà chưa có tên -> map tên
+
+    function onChangeTeacher(e) {
+        const val = e.target.value; // "" hoặc id dạng string
+        setTeacherId(val);
+        const found = teachers.find((t) => String(t.teacherId ?? t.TeacherId) === String(val));
+        setTeacherName(found ? (found.teacherName ?? found.TeacherName ?? "") : "");
     }
 
-    async function save() {
-        const v = validate();
-        if (v) return showError(v);
-
+    async function doSave(override = false) {
+        setSaving(true);
+        setErr("");
         try {
-            setSaving(true);
+            const payload = {
+                SessionDate: sessionDate,
+                StartTime: startTime,
+                EndTime: endTime,
+                TeacherId: teacherId === "" ? null : Number(teacherId),
+                Status: status,
+                Note: note,
+                OverrideStudentConflicts: override ? true : undefined,
+            };
+            await updateSession(id, payload);
+            navigate("/sessions", { state: { notice: "Đã lưu buổi học." } });
+        } catch (e) {
+            const res = e?.response;
+            const code = res?.status;
+            const msg = pickErr(e);
 
-            // Warning trùng học sinh (giống schedule)
-            const warns = await checkStudentOverlapForSession(Number(id), {
-                SessionDate: sessionDateISO,
-                StartTime: toHHMMSS(startTime),
-                EndTime: toHHMMSS(endTime),
-            });
-            if (Array.isArray(warns) && warns.length) {
+            if (code === 409 && (res?.data?.error === "StudentOverlapWarning" || Array.isArray(res?.data?.conflicts))) {
+                const warns = conflictsToWarnings(res?.data?.conflicts);
                 setWarnings(warns);
+                setPendingPayload({
+                    SessionDate: sessionDate,
+                    StartTime: startTime,
+                    EndTime: endTime,
+                    TeacherId: teacherId === "" ? null : Number(teacherId),
+                    Status: status,
+                    Note: note,
+                });
+                setWarnOpen(true);
                 setSaving(false);
                 return;
             }
 
-            await doSave();
-            nav("/sessions", { state: { notice: "Đã cập nhật buổi học." } });
-        } catch (e) {
-            const res = e?.response;
-            const msg =
-                res?.data?.message ||
-                res?.data?.detail ||
-                res?.data?.title ||
-                (typeof res?.data === "string" ? res.data : null) ||
-                e?.message ||
-                "Có lỗi xảy ra khi lưu.";
-            showError(String(msg));
-        } finally {
+            setErr(msg);
             setSaving(false);
         }
     }
 
+    async function preflightThenSave() {
+        setSaving(true);
+        setErr("");
+        try {
+            const patch = {
+                sessionDate,
+                startTime,
+                endTime,
+                teacherId: teacherId === "" ? null : Number(teacherId),
+            };
+            const conflicts = await checkStudentOverlapForSession(id, patch);
+            const warns = conflictsToWarnings(conflicts);
+            if (warns.length > 0) {
+                setWarnings(warns);
+                setPendingPayload({
+                    SessionDate: sessionDate,
+                    StartTime: startTime,
+                    EndTime: endTime,
+                    TeacherId: teacherId === "" ? null : Number(teacherId),
+                    Status: status,
+                    Note: note,
+                });
+                setWarnOpen(true);
+                setSaving(false);
+                return;
+            }
+            await doSave(false);
+        } catch {
+            await doSave(false); // fallback
+        }
+    }
+
+    function onConfirmWarning() {
+        setWarnOpen(false);
+        doSave(true);
+    }
+
     return (
         <>
-            {/* KHÔNG bọc bằng .content-wrapper để tránh khoảng cam */}
             <section className="content-header">
-                <h1>Sửa buổi học #{id}</h1>
-                <ol className="breadcrumb">
-                    <li><Link to="/">Trang chủ</Link></li>
-                    <li className="active">Sửa buổi</li>
-                </ol>
+                <h1>Chỉnh sửa buổi học</h1>
+                <small>
+                    {className}
+                    {teacherName ? ` — ${teacherName}` : ""}
+                </small>
             </section>
 
             <section className="content">
                 <div className="box box-primary">
                     <div className="box-header with-border">
                         <h3 className="box-title">Thông tin buổi</h3>
+                        {!canEdit && (
+                            <span className="label label-default" style={{ marginLeft: 10 }}>
+                                Chỉ xem (ngoài cửa sổ cho phép sửa)
+                            </span>
+                        )}
                     </div>
 
                     <div className="box-body">
-                        <div className="row">
-                            <div className="col-sm-3">
-                                <div className="form-group">
-                                    <label>Ngày</label>
-                                    <input
-                                        type="date"
-                                        className="form-control"
-                                        value={sessionDateISO}
-                                        onChange={(e) => {
-                                            const iso = e.target.value;
-                                            setSessionDateISO(iso);
-                                            setSessionDateText(isoToDMY(iso));
-                                            if (err) showError("");
-                                        }}
-                                    />
-                                    <p className="help-block">Dạng: {sessionDateText || "dd/MM/yyyy"}</p>
-                                </div>
-                            </div>
-                            <div className="col-sm-2">
-                                <div className="form-group">
-                                    <label>Bắt đầu</label>
-                                    <input
-                                        type="time"
-                                        className="form-control"
-                                        value={toTimeInput(startTime)}
-                                        onChange={(e) => { setStartTime(e.target.value); if (err) showError(""); }}
-                                    />
-                                </div>
-                            </div>
-                            <div className="col-sm-2">
-                                <div className="form-group">
-                                    <label>Kết thúc</label>
-                                    <input
-                                        type="time"
-                                        className="form-control"
-                                        value={toTimeInput(endTime)}
-                                        onChange={(e) => { setEndTime(e.target.value); if (err) showError(""); }}
-                                    />
-                                </div>
-                            </div>
-                            <div className="col-sm-5">
-                                <div className="form-group">
-                                    <label>Giáo viên</label>
-                                    <select
-                                        className="form-control"
-                                        value={teacherId}
-                                        onChange={(e) => { setTeacherId(e.target.value); if (err) showError(""); }}
-                                    >
-                                        <option value="">-- Chọn giáo viên --</option>
-                                        {teachers.map((t) => {
-                                            const idv = t.teacherId ?? t.TeacherId;
-                                            const name = t.teacherName ?? t.fullName ?? t.FullName ?? `(GV #${idv})`;
-                                            return <option key={idv} value={idv}>{name}</option>;
-                                        })}
-                                    </select>
-                                    <p className="help-block">
-                                        GV hiện tại:{" "}
-                                        <b>
-                                            {info.teacherName ??
-                                                info.teacherFullName ??
-                                                info.teacher?.fullName ??
-                                                (info.teacherId != null ? `#${info.teacherId}` : "—")}
-                                        </b>
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                        {err && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{String(err)}</div>}
 
-                        <div className="form-group">
-                            <label>Ghi chú</label>
-                            <input className="form-control" value={note} onChange={(e) => { setNote(e.target.value); if (err) showError(""); }} />
-                        </div>
-                    </div>
+                        {loading ? (
+                            <div className="text-muted">Đang tải…</div>
+                        ) : (
+                            <form
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    if (!canEdit) return;
+                                    preflightThenSave();
+                                }}
+                            >
+                                <div className="row">
+                                    <div className="col-sm-4">
+                                        <div className="form-group">
+                                            <label>Ngày (dd/MM/yyyy)</label>
+                                            <input
+                                                type="text"
+                                                className="form-control"
+                                                placeholder="dd/MM/yyyy"
+                                                value={sessionDateText}
+                                                onChange={(e) => {
+                                                    const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                                                    let out = digits;
+                                                    if (digits.length > 4) out = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+                                                    else if (digits.length > 2) out = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+                                                    setSessionDateText(out);
+                                                    const iso = dmyToISO(out);
+                                                    if (iso) setSessionDate(iso);
+                                                }}
+                                                onBlur={() => {
+                                                    const iso = dmyToISO(sessionDateText);
+                                                    if (iso) setSessionDateText(isoToDMY(iso));
+                                                }}
+                                                disabled={!canEdit}
+                                            />
+                                        </div>
+                                    </div>
 
-                    <div className="box-footer">
-                        <button className="btn btn-primary" disabled={saving} onClick={save}>
-                            <i className="fa fa-save" /> Lưu
-                        </button>
-                        <Link to="/sessions" className="btn btn-default" style={{ marginLeft: 10 }}>
-                            Hủy
-                        </Link>
+                                    <div className="col-sm-4">
+                                        <div className="form-group">
+                                            <label>Bắt đầu</label>
+                                            <input
+                                                type="time"
+                                                className="form-control"
+                                                value={startTime}
+                                                onChange={(e) => setStartTime(HHMM(e.target.value))}
+                                                disabled={!canEdit}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="col-sm-4">
+                                        <div className="form-group">
+                                            <label>Kết thúc</label>
+                                            <input
+                                                type="time"
+                                                className="form-control"
+                                                value={endTime}
+                                                onChange={(e) => setEndTime(HHMM(e.target.value))}
+                                                disabled={!canEdit}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="row">
+                                    <div className="col-sm-4">
+                                        <div className="form-group">
+                                            <label>Giáo viên</label>
+                                            <select
+                                                className="form-control"
+                                                value={teacherId}
+                                                onChange={onChangeTeacher}
+                                                disabled={!canEdit}
+                                            >
+                                                <option value="">(Chưa gán)</option>
+                                                {teachers.map((t) => {
+                                                    const idVal = String(t.teacherId ?? t.TeacherId);
+                                                    const nameVal = t.teacherName ?? t.TeacherName ?? `GV #${idVal}`;
+                                                    return (
+                                                        <option key={idVal} value={idVal}>
+                                                            {nameVal}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                            <p className="help-block text-muted" style={{ marginBottom: 0 }}>
+                                                {teacherName ? `Hiện tại: ${teacherName}` : ""}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-sm-4">
+                                        <div className="form-group">
+                                            <label>Trạng thái</label>
+                                            <select
+                                                className="form-control"
+                                                value={status}
+                                                onChange={(e) => setStatus(Number(e.target.value))}
+                                                disabled={!canEdit}
+                                            >
+                                                <option value={0}>Chưa diễn ra</option>
+                                                <option value={1}>Hoàn thành</option>
+                                                <option value={2}>Hủy</option>
+                                                <option value={3}>NoShow</option>
+                                                <option value={4}>Dời lịch</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-sm-4">
+                                        <div className="form-group">
+                                            <label>Ghi chú</label>
+                                            <input
+                                                type="text"
+                                                className="form-control"
+                                                value={note}
+                                                onChange={(e) => setNote(e.target.value)}
+                                                disabled={!canEdit}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="text-right">
+                                    <button type="button" className="btn btn-default" onClick={() => navigate(-1)} disabled={saving}>
+                                        Hủy
+                                    </button>
+                                    <button type="submit" className="btn btn-primary" style={{ marginLeft: 8 }} disabled={!canEdit || saving}>
+                                        {saving ? "Đang lưu…" : "Lưu"}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
                     </div>
                 </div>
             </section>
 
-            {/* Toast lỗi nổi (đếm ngược + progress) */}
-            {err && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => showError("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(remaining / AUTO_DISMISS) * 100}%`,
-                                background: "#a94442",
-                                transition: "width 100ms linear"
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Modal cảnh báo học sinh trùng */}
-            {warnings.length > 0 && (
-                <OverlapWarningModal
-                    open
-                    title="Cảnh báo trùng học sinh"
-                    warnings={warnings}
-                    onCancel={() => setWarnings([])}
-                    onConfirm={async () => {
-                        setWarnings([]);
-                        try {
-                            setSaving(true);
-                            await doSave();
-                            nav("/sessions", { state: { notice: "Đã cập nhật buổi học." } });
-                        } catch (e) {
-                            showError(e?.response?.data?.message || e.message || "Có lỗi xảy ra khi lưu.");
-                        } finally {
-                            setSaving(false);
-                        }
-                    }}
-                />
-            )}
+            <OverlapWarningModal
+                open={warnOpen}
+                warnings={warnings}
+                onCancel={() => setWarnOpen(false)}
+                onConfirm={onConfirmWarning}
+                title="Cảnh báo trùng lịch học sinh"
+            />
         </>
     );
 }

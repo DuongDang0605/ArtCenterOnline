@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { listAllSessions } from "./sessions";
 import { getClasses } from "../Class/classes";
+import { getTeachers } from "../Teacher/teachers";
 import { useAuth } from "../../auth/authCore";
 
 function firstLastOfCurrentMonth() {
@@ -18,11 +19,6 @@ function statusBadge(s) {
     const map = { 0: { text: "Chưa diễn ra", cls: "label-default" }, 1: { text: "Hoàn thành", cls: "label-success" }, 2: { text: "Hủy", cls: "label-danger" }, 3: { text: "NoShow", cls: "label-warning" }, 4: { text: "Dời lịch", cls: "label-info" } };
     return map[s] || { text: String(s), cls: "label-default" };
 }
-function canEditISOTime(dateIso, hhmm) {
-    if (!dateIso || !hhmm) return false;
-    try { const [y, m, d] = dateIso.split("-").map(Number); const [hh, mm] = String(hhmm).split(":").map((x) => parseInt(x, 10) || 0); const start = new Date(y, m - 1, d, hh, mm, 0); return Date.now() < start.getTime(); }
-    catch { return false; }
-}
 
 export default function SessionsPage() {
     const navigate = useNavigate();
@@ -32,64 +28,69 @@ export default function SessionsPage() {
     const roles = Array.isArray(auth?.roles) ? auth.roles : [];
     const isAdmin = roles.includes("Admin");
     const isTeacher = roles.includes("Teacher");
-    const myTeacherId =
-        auth?.user?.teacherId ?? auth?.user?.TeacherId ?? auth?.user?.teacher?.teacherId ?? auth?.user?.teacher?.TeacherId ?? "";
+    const myTeacherId = auth?.user?.teacherId ?? auth?.user?.TeacherId ?? auth?.user?.teacher?.teacherId ?? auth?.user?.teacher?.TeacherId ?? "";
 
     const today = new Date();
     const todayISO = d2input(today);
     const { first, last } = firstLastOfCurrentMonth();
+    const monthFirstISO = d2input(first);
+    const monthLastISO = d2input(last);
 
-    const [fromISO, setFromISO] = useState(isTeacher ? todayISO : d2input(first));
-    const [toISO, setToISO] = useState(isTeacher ? todayISO : d2input(last));
-    const [fromText, setFromText] = useState(isoToDMY(isTeacher ? todayISO : d2input(first)));
-    const [toText, setToText] = useState(isoToDMY(isTeacher ? todayISO : d2input(last)));
+    // Teacher: mặc định xem cả THÁNG; Admin: mặc định cả tháng (như trước)
+    const [fromISO, setFromISO] = useState(isTeacher ? monthFirstISO : monthFirstISO);
+    const [toISO, setToISO] = useState(isTeacher ? monthLastISO : monthLastISO);
+    const [fromText, setFromText] = useState(isoToDMY(isTeacher ? monthFirstISO : monthFirstISO));
+    const [toText, setToText] = useState(isoToDMY(isTeacher ? monthLastISO : monthLastISO));
 
     const [classId, setClassId] = useState("");
     const [teacherId, setTeacherId] = useState(isTeacher ? String(myTeacherId || "") : "");
     const [status, setStatus] = useState("");
 
     const [classes, setClasses] = useState([]);
-    const [teachers, setTeachers] = useState([]);
+    const [teachers, setTeachers] = useState([]); // [{id, name}]
     const [rows, setRows] = useState([]);
 
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
 
-    // Toast success khi quay về từ Edit
     const [notice, setNotice] = useState(location.state?.notice || "");
-    useEffect(() => {
-        if (location.state?.notice) {
-            // xoá state trên URL sau khi đọc
-            setTimeout(() => { navigate(".", { replace: true, state: {} }); }, 0);
-        }
-    }, []); // once
-    useEffect(() => {
-        if (!notice) return;
-        const t = setTimeout(() => setNotice(""), 4000);
-        return () => clearTimeout(t);
-    }, [notice]);
+    useEffect(() => { if (location.state?.notice) { setTimeout(() => { navigate(".", { replace: true, state: {} }); }, 0); } }, []);
+    useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(""), 4000); return () => clearTimeout(t); }, [notice]);
 
-    // nạp danh sách lớp + giáo viên
+    // nạp lớp + giáo viên
     useEffect(() => {
         let alive = true;
         (async () => {
             try {
-                const data = await getClasses();
+                const [cls, tchs] = await Promise.all([getClasses(), getTeachers()]);
                 if (!alive) return;
-                setClasses(data || []);
-                setTeachers((data || []).map((c) => c.mainTeacher).filter(Boolean));
+                setClasses(cls || []);
+
+                const seen = new Set(); const list = [];
+                (tchs || []).forEach((t) => {
+                    const id = Number(t.teacherId ?? t.TeacherId);
+                    if (!id || seen.has(id)) return;
+                    seen.add(id);
+                    const name = t.teacherName ?? t.TeacherName ?? `GV #${id}`;
+                    list.push({ id, name });
+                });
+                list.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+                setTeachers(list);
             } catch (e) { if (alive) setErr(pickErr(e)); }
         })();
         return () => { alive = false; };
     }, []);
 
     async function fetchData() {
-        setLoading(true);
-        setErr("");
+        setLoading(true); setErr("");
         try {
-            const effectiveTeacherId = isTeacher ? (myTeacherId ? Number(myTeacherId) : undefined) : (teacherId ? Number(teacherId) : undefined);
-            const effectiveFrom = isTeacher ? todayISO : fromISO;
-            const effectiveTo = isTeacher ? todayISO : toISO;
+            const effectiveTeacherId = isTeacher
+                ? (myTeacherId ? Number(myTeacherId) : undefined)
+                : (teacherId ? Number(teacherId) : undefined);
+
+            // Teacher: cố định khoảng THÁNG; Admin: dùng from/to đang nhập
+            const effectiveFrom = isTeacher ? monthFirstISO : fromISO;
+            const effectiveTo = isTeacher ? monthLastISO : toISO;
 
             const data = await listAllSessions({
                 from: effectiveFrom || undefined,
@@ -99,15 +100,9 @@ export default function SessionsPage() {
                 status: status === "" ? undefined : Number(status),
             });
             setRows(Array.isArray(data) ? data : []);
-        } catch (e) {
-            setErr(pickErr(e));
-            setRows([]);
-        } finally {
-            setLoading(false);
-        }
+        } catch (e) { setErr(pickErr(e)); setRows([]); }
+        finally { setLoading(false); }
     }
-
-    // nạp lần đầu + khi myTeacherId sẵn sàng
     useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [isTeacher, myTeacherId]);
 
     function setThisMonth() {
@@ -117,16 +112,22 @@ export default function SessionsPage() {
         setFromText(isoToDMY(fISO)); setToText(isoToDMY(tISO));
     }
 
-    const cols = isTeacher ? 5 : 6; // Từ, Đến, Lớp, (Giáo viên), Trạng thái, Nút
+    // Admin cho sửa nếu ngày thuộc [hôm nay .. hết tháng]
+    function adminCanEditByDate(dateIso) {
+        if (!dateIso) return false;
+        const [y, m, d] = dateIso.split("-").map(Number);
+        const sDate = new Date(y, m - 1, d);
+        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        return sDate >= start && sDate <= end;
+    }
+
+    const cols = isTeacher ? 5 : 6;
 
     return (
         <>
-            {/* Toast success (tự ẩn) */}
             {notice && (
-                <div
-                    className="alert alert-success"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
+                <div className="alert alert-success" style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}>
                     <button type="button" className="close" onClick={() => setNotice("")} aria-label="Close" style={{ marginLeft: 8 }}>
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -136,24 +137,14 @@ export default function SessionsPage() {
 
             <section className="content-header">
                 <h1>Tất cả buổi học</h1>
-                <small>{isTeacher ? "Giáo viên: chỉ xem buổi của tôi hôm nay" : "Xem/lọc toàn bộ buổi học theo khoảng ngày"}</small>
+                <small>{isTeacher ? "Giáo viên: xem tất cả buổi trong tháng của tôi" : "Xem/lọc toàn bộ buổi học theo khoảng ngày"}</small>
             </section>
 
             <section className="content">
                 <div className="box box-primary">
                     <div className="box-header with-border">
-                        <form
-                            className="form-inline"
-                            onSubmit={(e) => { e.preventDefault(); fetchData(); }}
-                        >
-                            <div
-                                style={{
-                                    display: "grid",
-                                    gridTemplateColumns: `repeat(${cols}, 1fr)`,
-                                    columnGap: 12, rowGap: 6, alignItems: "center", width: "100%",
-                                }}
-                            >
-                                {/* HÀNG 1: NHÃN */}
+                        <form className="form-inline" onSubmit={(e) => { e.preventDefault(); fetchData(); }}>
+                            <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, columnGap: 12, rowGap: 6, alignItems: "center", width: "100%" }}>
                                 <label className="control-label" style={{ margin: 0 }}>Từ</label>
                                 <label className="control-label" style={{ margin: 0 }}>Đến</label>
                                 <label className="control-label" style={{ margin: 0 }}>Lớp</label>
@@ -161,14 +152,13 @@ export default function SessionsPage() {
                                 <label className="control-label" style={{ margin: 0 }}>Trạng thái</label>
                                 <div />
 
-                                {/* HÀNG 2: Ô NHẬP */}
                                 <div>
                                     <input
                                         type="text" className="form-control" style={{ width: "100%", height: 34 }}
                                         placeholder="dd/mm/yyyy" inputMode="numeric" maxLength={10}
                                         value={fromText}
                                         onChange={(e) => {
-                                            if (isTeacher) return;
+                                            if (isTeacher) return; // Teacher khóa khoảng ngày về cả tháng
                                             const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
                                             let out = digits;
                                             if (digits.length > 4) out = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
@@ -214,8 +204,8 @@ export default function SessionsPage() {
                                         <select className="form-control" style={{ width: "100%", height: 34 }} value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
                                             <option value="">(Tất cả)</option>
                                             {teachers.map((t) => (
-                                                <option key={t.teacherId ?? t.TeacherId} value={String(t.teacherId ?? t.TeacherId)}>
-                                                    {t.teacherName ?? t.TeacherName}
+                                                <option key={t.id} value={String(t.id)}>
+                                                    {t.name}
                                                 </option>
                                             ))}
                                         </select>
@@ -258,17 +248,20 @@ export default function SessionsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {loading && (
-                                    <tr><td colSpan={8} className="text-center text-muted">Đang tải…</td></tr>
-                                )}
-                                {!loading && rows.length === 0 && (
-                                    <tr><td colSpan={8} className="text-center text-muted">Không có dữ liệu</td></tr>
-                                )}
+                                {loading && (<tr><td colSpan={8} className="text-center text-muted">Đang tải…</td></tr>)}
+                                {!loading && rows.length === 0 && (<tr><td colSpan={8} className="text-center text-muted">Không có dữ liệu</td></tr>)}
                                 {!loading && rows.map((r, idx) => {
                                     const st = statusBadge(r.status);
                                     const sid = r.sessionId ?? r.SessionId ?? r.id;
                                     const rowKey = sid ?? `${r.sessionDate}-${r.startTime}-${idx}`;
-                                    const editable = canEditISOTime(r.sessionDate, r.startTime) && r.status === 0;
+
+                                    // Teacher: chỉ buổi HÔM NAY mới được điểm danh
+                                    const isToday = anyToISO(r.sessionDate) === todayISO;
+                                    const teacherCanTakeToday = isTeacher && isToday;
+
+                                    // Admin: vẫn theo cửa sổ hôm nay → hết tháng
+                                    const adminWindowOk = isAdmin && adminCanEditByDate(anyToISO(r.sessionDate));
+                                    const editable = isAdmin ? adminWindowOk : false;
 
                                     return (
                                         <tr key={rowKey}>
@@ -283,12 +276,12 @@ export default function SessionsPage() {
                                                 <div className="btn-group btn-group-xs">
                                                     {isAdmin ? (
                                                         <>
-                                                            {editable ? (
+                                                            {adminWindowOk ? (
                                                                 <button className="btn btn-primary" onClick={() => navigate(`/sessions/${sid}/edit`)}>
                                                                     <i className="fa fa-edit" /> Sửa
                                                                 </button>
                                                             ) : (
-                                                                <button className="btn btn-default" onClick={() => navigate(`/sessions/${sid}/edit`)} title="Hết hạn sửa (đã qua giờ bắt đầu hoặc trạng thái khác 0)">
+                                                                <button className="btn btn-default" onClick={() => navigate(`/sessions/${sid}/edit`)} title="Ngoài cửa sổ sửa của Admin (chỉ hôm nay → hết tháng)">
                                                                     <i className="fa fa-lock" /> Xem
                                                                 </button>
                                                             )}
@@ -307,6 +300,7 @@ export default function SessionsPage() {
                                                     )}
                                                 </div>
                                             </td>
+
                                         </tr>
                                     );
                                 })}

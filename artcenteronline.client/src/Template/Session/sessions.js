@@ -83,6 +83,7 @@ export async function updateSession(sessionId, payload) {
 // =======================
 /** Kiểm tra trùng học sinh khi SỬA BUỔI (cảnh báo – FE sẽ bật modal) */
 // HS overlap cho Session: POST -> fallback GET
+// HS overlap cho Session: POST -> fallback GET
 export async function checkStudentOverlapForSession(sessionId, patch = {}) {
     const tryList = [
         () => http.post(`/ClassSessions/${sessionId}/check-student-overlap`, patch),
@@ -94,7 +95,10 @@ export async function checkStudentOverlapForSession(sessionId, patch = {}) {
     for (const call of tryList) {
         try {
             const { data } = await call();
-            return Array.isArray(data) ? data : (data?.items ?? []);
+            if (Array.isArray(data)) return data;
+            if (Array.isArray(data?.conflicts)) return data.conflicts; // <- quan trọng
+            if (Array.isArray(data?.items)) return data.items;
+            return [];
         } catch (err) {
             const st = err?.response?.status;
             if (st === 405 || st === 404 || st === 400) { lastErr = err; continue; }
@@ -103,6 +107,7 @@ export async function checkStudentOverlapForSession(sessionId, patch = {}) {
     }
     throw lastErr || new Error("Không tìm thấy endpoint check-student-overlap cho buổi.");
 }
+
 
 
 /** Preflight giáo viên cho 1 buổi (GV trùng → 409 ở server) */

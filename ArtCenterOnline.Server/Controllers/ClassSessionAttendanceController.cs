@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 [ApiController]
 [Route("api/classsessions")]
-[Authorize] // mặc định yêu cầu đăng nhập
+[Authorize]
 public class ClassSessionAttendanceController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -17,23 +17,32 @@ public class ClassSessionAttendanceController : ControllerBase
 
     public ClassSessionAttendanceController(AppDbContext db, IAttendanceGuard guard, ISessionAccountingService accounting)
     {
-        _db = db;
-        _guard = guard;
-        _accounting = accounting;
+        _db = db; _guard = guard; _accounting = accounting;
     }
 
     [HttpGet("{sessionId:int}/students")]
     [Authorize(Roles = "Admin,Teacher")]
     public async Task<IActionResult> GetStudentsInSession([FromRoute] int sessionId)
     {
-        var s = await _db.ClassSessions.AsNoTracking().FirstOrDefaultAsync(x => x.SessionId == sessionId);
-        if (s == null) return NotFound(new { message = "Session not found." });
+        var s = await _db.ClassSessions.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.SessionId == sessionId);
+        if (s == null) return NotFound(new { message = "Buổi học không tồn tại." });
 
-        // Kiểm tra quyền điểm danh
-        var role = User.IsInRole("Admin") ? "Admin" : "Teacher";
-        var (allowed, reason) = await _guard.CanTakeAsync(User, role, s, _db);
-        if (!allowed) return Forbid(reason);
+        // Cho phép HIỂN THỊ roster cho Admin/Teacher.
+        // Chỉ ràng buộc: Teacher phải đúng buổi của mình (không ràng buộc thời gian).
+        if (User.IsInRole("Teacher"))
+        {
+            var userId = User.GetUserId();
+            var myTeacherId = await _db.Teachers
+                .Where(t => t.UserId == userId)
+                .Select(t => t.TeacherId)
+                .FirstOrDefaultAsync();
 
+            if (myTeacherId == 0 || s.TeacherId != myTeacherId)
+                return Forbid("Bạn không phụ trách buổi này.");
+        }
+
+        // Roster đang active tại lớp
         var roster = await (from cs in _db.ClassStudents
                             join st in _db.Students on cs.StudentId equals st.StudentId
                             where cs.ClassID == s.ClassID && cs.IsActive
@@ -41,9 +50,18 @@ public class ClassSessionAttendanceController : ControllerBase
                             select new { st.StudentId, st.StudentName })
                            .ToListAsync();
 
-        var attMap = await _db.Attendances.AsNoTracking()
-                          .Where(a => a.SessionId == sessionId)
-                          .ToDictionaryAsync(a => a.StudentId, a => new { a.IsPresent, a.Note });
+        // 🔧 Tránh 500: có thể tồn tại N bản ghi Attendance cùng StudentId
+        // -> lấy bản ghi MỚI NHẤT theo TakenAtUtc
+        var attList = await _db.Attendances.AsNoTracking()
+            .Where(a => a.SessionId == sessionId)
+            .OrderByDescending(a => a.TakenAtUtc)
+            .Select(a => new { a.StudentId, a.IsPresent, a.Note, a.TakenAtUtc })
+            .ToListAsync();
+
+        var attMap = attList
+            .GroupBy(x => x.StudentId)
+            .ToDictionary(g => g.Key,
+                          g => new { IsPresent = g.First().IsPresent, Note = g.First().Note });
 
         var result = roster.Select(r => new
         {
@@ -55,6 +73,7 @@ public class ClassSessionAttendanceController : ControllerBase
 
         return Ok(result);
     }
+
 
     public record AttendanceItemDto(int StudentId, bool IsPresent, string? Note);
 
@@ -69,16 +88,13 @@ public class ClassSessionAttendanceController : ControllerBase
         var s = await _db.ClassSessions.FirstOrDefaultAsync(x => x.SessionId == sessionId);
         if (s == null) return NotFound();
 
-        // Kiểm tra quyền điểm danh
         var role = User.IsInRole("Admin") ? "Admin" : "Teacher";
         var (allowed, reason) = await _guard.CanTakeAsync(User, role, s, _db);
         if (!allowed) return Forbid(reason);
 
-        // Xác nhận HS còn active trong lớp
         foreach (var it in items)
         {
-            bool active = await _db.ClassStudents.AnyAsync(cs =>
-                cs.ClassID == s.ClassID && cs.StudentId == it.StudentId && cs.IsActive);
+            bool active = await _db.ClassStudents.AnyAsync(cs => cs.ClassID == s.ClassID && cs.StudentId == it.StudentId && cs.IsActive);
             if (!active)
                 return Conflict(new { message = $"Học sinh {it.StudentId} không hoạt động tại ngày buổi học." });
         }
@@ -91,7 +107,7 @@ public class ClassSessionAttendanceController : ControllerBase
             var rec = await _db.Attendances.FirstOrDefaultAsync(a => a.SessionId == sessionId && a.StudentId == it.StudentId);
             if (rec == null)
             {
-                rec = new Attendance
+                _db.Attendances.Add(new Attendance
                 {
                     SessionId = sessionId,
                     StudentId = it.StudentId,
@@ -99,8 +115,7 @@ public class ClassSessionAttendanceController : ControllerBase
                     Note = it.Note,
                     TakenAtUtc = nowUtc,
                     TakenByUserId = userId
-                };
-                _db.Attendances.Add(rec);
+                });
             }
             else
             {
@@ -111,35 +126,31 @@ public class ClassSessionAttendanceController : ControllerBase
             }
         }
 
-        // Lưu attendance
         await _db.SaveChangesAsync();
 
-        // ❗YÊU CẦU MỚI: Hễ có điểm danh -> đánh dấu buổi Completed (1)
-        // Làm ngay sau khi lưu điểm danh, không ràng buộc trạng thái trước đó.
+        // Hễ có attendance → Completed
         s.Status = SessionStatus.Completed;
         await _db.SaveChangesAsync();
-        // sau khi set: s.Status = SessionStatus.Completed; await _db.SaveChangesAsync();
-        var (applied, msg) = await _accounting.ApplyAsync(sessionId);
-        // tuỳ chọn: trả message rõ ràng
-        return Ok(new { message = applied ? "Điểm danh + hạch toán thành công." : (msg ?? "Đã hạch toán trước đó.") });
 
+        // Hạch toán: lần đầu cộng học sinh; lần sau chỉ đồng bộ lại giáo viên (do service tính lại theo tháng)
+        var (applied, msg) = await _accounting.ApplyAsync(sessionId);
+        return Ok(new { message = applied ? (msg ?? "Điểm danh + hạch toán thành công.") : (msg ?? "Đã hạch toán trước đó.") });
     }
 
     [HttpPost("{sessionId:int}/accounting/apply")]
     [Authorize(Roles = "Admin,Teacher")]
-    public async Task<IActionResult> ApplyAccounting([FromRoute] int sessionId)
+    public async Task<IActionResult> ApplyAccounting([FromRoute] int sessionId, [FromQuery] bool teacherOnly = false)
     {
         var s = await _db.ClassSessions.AsNoTracking().FirstOrDefaultAsync(x => x.SessionId == sessionId);
         if (s == null) return NotFound();
 
-        // Kiểm tra quyền điểm danh/hạch toán
         var role = User.IsInRole("Admin") ? "Admin" : "Teacher";
         var (allowed, reason) = await _guard.CanTakeAsync(User, role, s, _db);
         if (!allowed) return Forbid(reason);
 
-        var (applied, msg) = await _accounting.ApplyAsync(sessionId);
+        var (applied, msg) = await _accounting.ApplyAsync(sessionId, teacherOnly);
         if (!applied) return Conflict(new { message = msg });
 
-        return Ok(new { message = "Đã hạch toán buổi học." });
+        return Ok(new { message = msg ?? (teacherOnly ? "Đã hạch toán lại (chỉ giáo viên)." : "Đã hạch toán buổi học.") });
     }
 }
