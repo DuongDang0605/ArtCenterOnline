@@ -55,6 +55,7 @@ export default function EditSessionPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { roles: ctxRoles = [] } = useAuth();
+    // eslint-disable-next-line no-unused-vars
     const isAdmin = ctxRoles.includes("Admin");
 
     const [loading, setLoading] = useState(true);
@@ -79,6 +80,7 @@ export default function EditSessionPage() {
     // warning modal state
     const [warnOpen, setWarnOpen] = useState(false);
     const [warnings, setWarnings] = useState([]);
+    // eslint-disable-next-line no-unused-vars
     const [pendingPayload, setPendingPayload] = useState(null);
 
     // nạp chi tiết buổi
@@ -224,6 +226,14 @@ export default function EditSessionPage() {
         setWarnOpen(false);
         doSave(true);
     }
+    // (đặt 2 biến này trước phần return của component)
+    const selectedTeacherObj = teachers.find(
+        (t) => String(t.teacherId ?? t.TeacherId) === String(teacherId || "")
+    );
+    // eslint-disable-next-line no-unused-vars
+    const selectedStatusText = selectedTeacherObj
+        ? ((selectedTeacherObj.status ?? selectedTeacherObj.Status) === 1 ? "Đang dạy" : "Ngừng")
+        : "";
 
     return (
         <>
@@ -313,32 +323,45 @@ export default function EditSessionPage() {
                                     </div>
                                 </div>
 
-                                <div className="row">
-                                    <div className="col-sm-4">
-                                        <div className="form-group">
-                                            <label>Giáo viên</label>
-                                            <select
-                                                className="form-control"
-                                                value={teacherId}
-                                                onChange={onChangeTeacher}
-                                                disabled={!canEdit}
-                                            >
-                                                <option value="">(Chưa gán)</option>
-                                                {teachers.map((t) => {
-                                                    const idVal = String(t.teacherId ?? t.TeacherId);
-                                                    const nameVal = t.teacherName ?? t.TeacherName ?? `GV #${idVal}`;
-                                                    return (
-                                                        <option key={idVal} value={idVal}>
-                                                            {nameVal}
-                                                        </option>
-                                                    );
-                                                })}
-                                            </select>
-                                            <p className="help-block text-muted" style={{ marginBottom: 0 }}>
-                                                {teacherName ? `Hiện tại: ${teacherName}` : ""}
-                                            </p>
+                                    <div className="row">
+                                        <div className="col-sm-4">
+                                            <div className="form-group">
+                                                <label>Giáo viên</label>
+                                                <select
+                                                    className="form-control"
+                                                    value={teacherId}
+                                                    onChange={(e) => {
+                                                        const val = String(e.target.value || "");
+                                                        const sel = teachers.find(t => String(t.teacherId ?? t.TeacherId) === val);
+                                                        if (sel && (sel.status ?? sel.Status) !== 1) return; // chặn chọn giáo viên ngừng
+                                                        onChangeTeacher(e);
+                                                    }}
+                                                    disabled={!canEdit}
+                                                >
+                                                    <option value="">(Chưa gán)</option>
+                                                    {teachers.map((t) => {
+                                                        const idVal = String(t.teacherId ?? t.TeacherId);
+                                                        const nameVal = t.teacherName ?? t.TeacherName ?? `GV #${idVal}`;
+                                                        const isActive = (t.status ?? t.Status) === 1;
+                                                        return (
+                                                            <option
+                                                                key={idVal}
+                                                                value={idVal}
+                                                                disabled={!isActive}                             // chặn chọn
+                                                                style={!isActive ? { color: "#999" } : undefined}
+                                                                title={!isActive ? "Giáo viên ngừng dạy (không thể chọn)" : undefined}
+                                                            >
+                                                                {nameVal}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+
+                                                <p className="help-block text-muted" style={{ marginBottom: 0 }}>
+                                                    {teacherName ? `Hiện tại: ${teacherName} ` : ""}
+                                                </p>
+                                            </div>
                                         </div>
-                                    </div>
 
                                     <div className="col-sm-4">
                                         <div className="form-group">
