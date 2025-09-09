@@ -151,7 +151,7 @@ export default function SessionAttendancePage() {
 
                         {isTeacher && !isTodaySession && (
                             <div className="alert alert-warning" style={{ marginTop: 10 }}>
-                                Giáo viên chỉ được <b>LƯU</b> điểm danh cho <b>buổi hôm nay</b>. Bạn vẫn có thể đánh dấu/ghi chú bình thường, nhưng nút Lưu sẽ bị khóa.
+                                Giáo viên chỉ được <b>Điểm danh</b> cho <b>ngày hôm nay</b>. Nếu cần <b>sửa điểm danh</b> liên hệ <b>Quản lý</b>.
                             </div>
                         )}
                     </div>

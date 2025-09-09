@@ -22,6 +22,7 @@ namespace ArtCenterOnline.Server.Controllers
             public string TeacherName { get; set; } = string.Empty;
             public string PhoneNumber { get; set; } = string.Empty;
             public int status { get; set; } = 1; // 1=active
+
         }
 
         public class TeacherUpdateDto
@@ -50,12 +51,29 @@ namespace ArtCenterOnline.Server.Controllers
         // ===== GET: list — trả sessionsThisMonth từ TeacherMonthlyStat =====
         [HttpGet]
         [Authorize(Roles = "Admin,Teacher")]
-        public async Task<ActionResult<IEnumerable<object>>> GetAll()
+        public async Task<ActionResult<IEnumerable<object>>> Get(CancellationToken ct)
         {
             var today = DateTime.Today;
             int y = today.Year, m = today.Month;
 
-            var rows = await _db.Teachers
+            var firstThisDO = new DateOnly(y, m, 1);
+            var firstPrevDO = firstThisDO.AddMonths(-1);
+
+            const int STATUS_COMPLETED = 1;
+
+            // Đếm tháng trước -> dict { TeacherId -> Count }
+            var prevCounts = await _db.ClassSessions
+                .AsNoTracking()
+                .Where(s => s.TeacherId != null
+                         && s.SessionDate >= firstPrevDO
+                         && s.SessionDate < firstThisDO
+                         && (int)s.Status == STATUS_COMPLETED)
+                .GroupBy(s => s.TeacherId!.Value)
+                .Select(g => new { TeacherId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TeacherId, x => x.Count, ct);
+
+            // Lấy danh sách teacher + sessionsThisMonth (giữ nguyên cách lấy)
+            var baseRows = await _db.Teachers
                 .AsNoTracking()
                 .Include(t => t.User)
                 .Select(t => new
@@ -66,43 +84,30 @@ namespace ArtCenterOnline.Server.Controllers
                     phoneNumber = t.PhoneNumber,
                     status = t.status,
                     email = t.User != null ? t.User.Email : string.Empty,
+
                     sessionsThisMonth = _db.TeacherMonthlyStats
                         .Where(s => s.TeacherId == t.TeacherId && s.Year == y && s.Month == m)
-                        .Select(s => (int?)s.TaughtCount).FirstOrDefault() ?? 0
+                        .Select(s => (int?)s.TaughtCount).FirstOrDefault() ?? 0,
                 })
-                .ToListAsync();
+                .ToListAsync(ct);
 
-            return Ok(rows);
+            var result = baseRows.Select(r => new
+            {
+                r.teacherId,
+                r.userId,
+                r.teacherName,
+                r.phoneNumber,
+                r.status,
+                r.email,
+                r.sessionsThisMonth,
+                soBuoiDayThangTruoc = prevCounts.TryGetValue(r.teacherId, out var c) ? c : 0
+            });
+
+            return Ok(result);
         }
 
-        // ===== GET: by id — trả sessionsThisMonth từ TeacherMonthlyStat =====
-        [HttpGet("{id:int}")]
-        [Authorize(Roles = "Admin,Teacher")]
-        public async Task<ActionResult<object>> Get(int id)
-        {
-            var today = DateTime.Today;
-            int y = today.Year, m = today.Month;
 
-            var item = await _db.Teachers
-                .AsNoTracking()
-                .Include(t => t.User)
-                .Where(t => t.TeacherId == id)
-                .Select(t => new
-                {
-                    teacherId = t.TeacherId,
-                    userId = t.UserId,
-                    teacherName = t.TeacherName,
-                    phoneNumber = t.PhoneNumber,
-                    status = t.status,
-                    email = t.User != null ? t.User.Email : string.Empty,
-                    sessionsThisMonth = _db.TeacherMonthlyStats
-                        .Where(s => s.TeacherId == t.TeacherId && s.Year == y && s.Month == m)
-                        .Select(s => (int?)s.TaughtCount).FirstOrDefault() ?? 0
-                })
-                .FirstOrDefaultAsync();
 
-            return item is null ? NotFound() : Ok(item);
-        }
 
         // ===== POST: create Teacher + User + assign Role(Teacher) =====
         [HttpPost]
@@ -153,10 +158,13 @@ namespace ArtCenterOnline.Server.Controllers
 
             var today = DateTime.Today;
             int y = today.Year, m = today.Month;
+            var firstThis = new DateTime(y, m, 1);
+            var prev = firstThis.AddMonths(-1);
+            int yp = prev.Year, mp = prev.Month;
             int sessionsThisMonth = await _db.TeacherMonthlyStats
                 .Where(s => s.TeacherId == teacher.TeacherId && s.Year == y && s.Month == m)
                 .Select(s => (int?)s.TaughtCount).FirstOrDefaultAsync() ?? 0;
-
+            
             var dto = new
             {
                 teacherId = teacher.TeacherId,
@@ -165,7 +173,8 @@ namespace ArtCenterOnline.Server.Controllers
                 phoneNumber = teacher.PhoneNumber,
                 status = teacher.status,
                 email = user.Email,
-                sessionsThisMonth
+                sessionsThisMonth,
+               
             };
 
             return CreatedAtAction(nameof(Get), new { id = teacher.TeacherId }, dto);

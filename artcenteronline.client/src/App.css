@@ -177,22 +177,9 @@ table.dataTable {
     overflow: hidden; /* chặn tràn */
 }
 
-/* Ảnh lớn trong dropdown user (nếu dùng .user-header) */
-.user-header img,
-.dropdown-menu .user-header img {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    object-fit: cover;
-    object-position: center;
-}
+
 
 /* Phòng trường hợp AdminLTE đặt max-width:100% gây co giãn không mong muốn */
-.navbar .user-image,
-.user-header img {
-    max-width: none;
-    aspect-ratio: 1 / 1; /* giữ tỉ lệ 1:1 khi trình duyệt hỗ trợ */
-}
 
 /* Sidebar user panel avatar (trong <div class="pull-left image">…) */
 .user-panel .image,
@@ -213,4 +200,189 @@ table.dataTable {
         object-fit: cover; /* cắt giữa, không méo */
         object-position: center;
         aspect-ratio: 1 / 1; /* hỗ trợ trình duyệt mới, giữ tỉ lệ 1:1 */
+    }
+/* User panel: name + role cùng dòng, đẹp và gọn */
+.user-panel .user-info-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* khoảng cách giữa tên và role */
+    line-height: 1.1;
+}
+
+.user-panel .user-name {
+    font-size: 15px; /* tăng size: chỉnh 16–18 nếu muốn to hơn */
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* tên dài sẽ ... để không vỡ layout */
+    max-width: 140px; /* tùy sidebar, chỉnh lại nếu cần */
+}
+
+.user-panel .user-role-badge {
+    font-size: 12px; /* badge gọn gàng */
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+/* ======= Layout core (clean) ======= */
+
+/* 0) Mặc định: KHÔNG cố định → content không chừa lề trái */
+.content-wrapper,
+.main-footer,
+.right-side {
+    margin-left: 0;
+    padding-top: 0;
+}
+
+/* 1) Bật cố định khi body có class .fixed */
+body.fixed .main-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50px; /* chiều cao header AdminLTE 2 */
+    z-index: 1030;
+}
+
+body.fixed .main-sidebar {
+    position: fixed;
+    top: 10px;
+    left: 0; /* nằm dưới header */
+    width: 230px;
+    bottom: 0;
+    overflow-y: auto; /* sidebar tự cuộn */
+    z-index: 1029;
+}
+
+body.fixed .content-wrapper,
+body.fixed .main-footer,
+body.fixed .right-side {
+    margin-left: 230px; /* chừa chỗ cho sidebar */
+    padding-top: 50px; /* chừa chỗ cho header */
+    transition: margin-left .3s ease;
+}
+
+/* 1.1) Sidebar thu gọn */
+body.fixed.sidebar-mini.sidebar-collapse .content-wrapper,
+body.fixed.sidebar-mini.sidebar-collapse .main-footer,
+body.fixed.sidebar-mini.sidebar-collapse .right-side {
+    margin-left: 50px !important;
+}
+
+/* 1.2) Mobile: sidebar dạng overlay */
+@media (max-width: 767px) {
+    body.fixed .content-wrapper,
+    body.fixed .main-footer,
+    body.fixed .right-side {
+        margin-left: 0;
+    }
+
+    body.fixed .main-sidebar {
+        left: -230px;
+    }
+    /* ẩn mặc định */
+    body.fixed.sidebar-open .main-sidebar {
+        left: 0;
+    }
+    /* hiện khi bấm nút */
+}
+/* ===== User panel (sidebar) – bản gọn không avatar ===== */
+.main-sidebar .user-panel {
+    padding: 12px 14px;
+    background: transparent;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+    .main-sidebar .user-panel.user-panel-compact {
+        min-height: 0; /* bỏ chiều cao mặc định của AdminLTE */
+    }
+
+    /* Ẩn hẳn khối ảnh nếu còn trong DOM ở nơi khác */
+    .main-sidebar .user-panel .image {
+        display: none !important;
+    }
+
+    /* Mặc định AdminLTE đặt .info là absolute -> đổi về flow thường để cân đối chiều cao */
+    .main-sidebar .user-panel .info {
+        position: static !important;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        line-height: 1.2;
+    }
+
+    /* Tối ưu typo cho gọn */
+    .main-sidebar .user-panel .user-name {
+        font-size: 15px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .main-sidebar .user-panel .user-role-badge {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+    }
+    /* --- Fix lệch tên + role trong user-panel (AdminLTE 2) --- */
+    .main-sidebar .user-panel .image {
+        display: none !important;
+    }
+
+    .main-sidebar .user-panel.user-panel-compact {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 40px; /* có thể 44 nếu muốn thoáng hơn */
+        padding: 0 10px;
+        border-bottom: 1px solid rgba(255,255,255,.06);
+        min-height: 0;
+    }
+
+    /* Reset toàn bộ rule mặc định gây lệch */
+    .main-sidebar .user-panel .info {
+        position: static !important;
+        left: auto !important;
+        right: auto !important;
+        margin: 0 !important;
+        padding: 0 !important; /* xoá padding-left:15px mặc định */
+        width: 100% !important; /* xoá width:calc(100% - 65px) */
+        display: flex !important;
+        align-items: center;
+        justify-content: center; /* căn giữa ngang */
+        gap: 8px;
+        line-height: 1;
+        text-align: center;
+    }
+
+    /* Typo gọn gàng */
+    .main-sidebar .user-panel .user-name {
+        font-size: 14px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .main-sidebar .user-panel .user-role-badge {
+        font-size: 11px;
+        padding: 1px 8px;
+        border-radius: 999px;
+    }
+
+/* Ép dropdown header thấp gọn, không ảnh */
+.navbar-nav > li.user-menu > .dropdown-menu > li.user-header {
+    height: 60px !important;
+    padding: 10px 12px !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+    .navbar-nav > li.user-menu > .dropdown-menu > li.user-header p {
+        margin: 0 !important;
+        line-height: 1.2;
     }

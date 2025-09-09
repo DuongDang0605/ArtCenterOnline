@@ -14,6 +14,10 @@ namespace ArtCenterOnline.Server.Services
 
         public async Task<SyncResult> SyncMonthAsync(int classId, int? year = null, int? month = null, CancellationToken ct = default)
         {
+            var clss = await _db.Classes.AsNoTracking().FirstOrDefaultAsync(c => c.ClassID == classId, ct);
+            if (clss == null) throw new InvalidOperationException($"Không tìm thấy lớp #{classId}.");
+            if (clss.Status != 1) return new SyncResult(0, 0, 0, 0); // lớp không active → bỏ qua
+
             var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
             var now = DateTime.UtcNow;
 

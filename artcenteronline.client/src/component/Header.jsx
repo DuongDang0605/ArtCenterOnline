@@ -1,5 +1,7 @@
 ﻿import { Link } from "react-router-dom";
 import { useAuth } from "../auth/authCore";
+import { useEffect } from "react";
+
 
 export default function Header() {
     const { user, roles, logout } = useAuth();
@@ -20,6 +22,11 @@ export default function Header() {
         if (el) el.classList.toggle("control-sidebar-open");
     };
 
+    useEffect(() => {
+        document.body.classList.add("fixed", "sidebar-mini"); // bật fixed layout
+        return () => document.body.classList.remove("fixed");
+    }, []);
+
     return (
         <header className="main-header">
             <Link to="/" className="logo">
@@ -36,12 +43,14 @@ export default function Header() {
                     <ul className="nav navbar-nav">
                         <li className="dropdown user user-menu">
                             <a href="#" className="dropdown-toggle" data-toggle="dropdown">
-                                <img src="/AdminLTE/dist/img/A1.jpg" className="user-image" alt="User" />
+                                {/* Avatar nhỏ + tên */}
+                              
                                 <span className="hidden-xs">{user?.fullName || "Guest"}</span>
                             </a>
                             <ul className="dropdown-menu">
                                 <li className="user-header">
-                                    <img src="/AdminLTE/dist/img/A1.jpg" className="img-circle" alt="User" />
+                                 
+                                  
                                     <p>
                                         {user?.fullName || "Guest"} - {roles?.join(", ") || "No Role"}
                                     </p>

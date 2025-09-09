@@ -1,42 +1,45 @@
 ﻿import { Link } from "react-router-dom";
 import { useAuth } from "../auth/authCore";
+import { useEffect } from "react";
+
 
 export default function Sidebar() {
     const { user, roles = [] } = useAuth();
     const isAdmin = roles.includes("Admin");
+ 
+
+
+    useEffect(() => {
+        document.body.classList.add("fixed", "sidebar-mini"); // bật fixed layout
+        return () => document.body.classList.remove("fixed");
+    }, []);
 
     return (
         <aside className="main-sidebar">
             <section className="sidebar">
-                <div className="user-panel">
-                    <div className="pull-left image">
-                        <img
-                            src="/AdminLTE/dist/img/A1.jpg"
-                            className="img-circle"
-                            alt="User"
-                        />
-                    </div>
-                    <div className="pull-left info">
-                        <p>{user?.fullName || "Guest"}</p>
-                        <a href="#">
-                            <i className="fa fa-circle text-success" /> {roles?.[0] || "No Role"}
-                        </a>
+                <div className="user-panel user-panel-compact">
+                    <div className="info user-info-inline">
+                        <span className="user-name">{user?.fullName || "Guest"}</span>
+                        <span
+                            className={`label ${roles?.[0] ? "label-success" : "label-default"} user-role-badge`}
+                            title={roles?.[0] || "No Role"}
+                        >
+                            {roles?.[0] || "No Role"}
+                        </span>
                     </div>
                 </div>
+
 
                 <ul className="sidebar-menu" data-widget="tree">
                     <li className="header">MAIN NAVIGATION</li>
 
-                
                     {isAdmin && (
                         <li>
                             <Link to="/reports">
                                 <i className="fa fa-line-chart" aria-hidden="true" /> <span>Báo cáo</span>
                             </Link>
-
                         </li>
                     )}
-
 
                     <li className="treeview">
                         <a href="#">
@@ -124,6 +127,7 @@ export default function Sidebar() {
                             </ul>
                         </li>
                     )}
+
                     <li className="treeview">
                         <a href="#">
                             <i className="fa fa-graduation-cap" /> <span>Quản lý buổi học</span>
@@ -142,7 +146,6 @@ export default function Sidebar() {
                                     </Link>
                                 </li>
                             )}
-
                         </ul>
                     </li>
                 </ul>

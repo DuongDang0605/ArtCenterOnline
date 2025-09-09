@@ -1,6 +1,7 @@
 ﻿using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
 using ArtCenterOnline.Server.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -13,6 +14,7 @@ namespace ArtCenterOnline.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class ClassSchedulesController : ControllerBase
     {
         private readonly AppDbContext _db;
@@ -197,6 +199,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // GET: api/ClassSchedules/by-class/{classId}
         [HttpGet("by-class/{classId:int}")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> GetByClass(int classId, CancellationToken ct)
         {
             var rows = await _db.ClassSchedules
@@ -210,6 +213,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // GET: api/ClassSchedules/{id}
         [HttpGet("{id:int}")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> GetOne(int id, CancellationToken ct)
         {
             var s = await _db.ClassSchedules.Include(x => x.Teacher).FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
@@ -225,6 +229,7 @@ namespace ArtCenterOnline.Server.Controllers
         }
 
         [HttpGet("{id:int}/check-student-overlap")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> CheckStudentOverlap(
             int id,
             [FromQuery] string? from,
@@ -252,6 +257,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // POST: api/ClassSchedules/preflight-teacher — trả về lỗi CHI TIẾT nếu trùng
         [HttpPost("preflight-teacher")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> PreflightTeacher([FromBody] PreflightTeacherDto dto, CancellationToken ct)
         {
             if (dto.TeacherId <= 0)
@@ -287,6 +293,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // POST: api/ClassSchedules
         [HttpPost]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> Create([FromBody] UpsertScheduleDto dto, CancellationToken ct)
         {
             var start = ParseTime(dto.StartTime);
@@ -354,6 +361,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // PUT: api/ClassSchedules/{id}
         [HttpPut("{id:int}")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> Update(int id, [FromBody] UpsertScheduleDto dto, CancellationToken ct)
         {
             var s = await _db.ClassSchedules.Include(x => x.Teacher).FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
@@ -419,6 +427,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // PATCH: api/ClassSchedules/{id}/toggle
         [HttpPatch("{id:int}/toggle")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> Toggle(int id, CancellationToken ct)
         {
             var s = await _db.ClassSchedules.FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
@@ -430,6 +439,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // DELETE: api/ClassSchedules/{id}
         [HttpDelete("{id:int}")]
+        [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
         {
             var s = await _db.ClassSchedules.FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
@@ -438,77 +448,72 @@ namespace ArtCenterOnline.Server.Controllers
             await _db.SaveChangesAsync(ct);
             return Ok(new { id });
         }
-
-
-
-// ...
-
-[HttpGet] // GET: api/ClassSessions?from=yyyy-MM-dd&to=yyyy-MM-dd&classId=9&teacherId=...&status=...&forCalendar=true
-    public async Task<IActionResult> Query(
-    [FromQuery] string? from,
-    [FromQuery] string? to,
-    [FromQuery] int? classId,
-    [FromQuery] int? teacherId,
-    [FromQuery] int? status,
-    [FromQuery] bool forCalendar = false,
-    CancellationToken ct = default)
-    {
-        // parse yyyy-MM-dd -> DateOnly (chấp nhận cả định dạng mặc định)
-        static bool TryParseDateOnly(string? s, out DateOnly d)
+        [HttpGet] // GET: api/ClassSessions?from=yyyy-MM-dd&to=yyyy-MM-dd&classId=9&teacherId=...&status=...&forCalendar=true
+        public async Task<IActionResult> Query(
+       [FromQuery] string? from,
+       [FromQuery] string? to,
+       [FromQuery] int? classId,
+       [FromQuery] int? teacherId,
+       [FromQuery] int? status,
+       [FromQuery] bool forCalendar = false,
+       CancellationToken ct = default)
         {
-            if (!string.IsNullOrWhiteSpace(s))
+            // parse yyyy-MM-dd -> DateOnly (chấp nhận cả định dạng mặc định)
+            static bool TryParseDateOnly(string? s, out DateOnly d)
             {
-                if (DateOnly.TryParseExact(s!, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d))
-                    return true;
-                if (DateOnly.TryParse(s!, out d)) return true;
-                // fallback qua DateTime
-                if (DateTime.TryParse(s!, out var dt))
+                if (!string.IsNullOrWhiteSpace(s))
                 {
-                    d = new DateOnly(dt.Year, dt.Month, dt.Day);
-                    return true;
+                    if (DateOnly.TryParseExact(s!, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d))
+                        return true;
+                    if (DateOnly.TryParse(s!, out d)) return true;
+                    // fallback qua DateTime
+                    if (DateTime.TryParse(s!, out var dt))
+                    {
+                        d = new DateOnly(dt.Year, dt.Month, dt.Day);
+                        return true;
+                    }
                 }
+                d = default;
+                return false;
             }
-            d = default;
-            return false;
-        }
 
-        var q = _db.ClassSessions.AsNoTracking().AsQueryable();
+            var q = _db.ClassSessions.AsNoTracking().AsQueryable();
 
-        if (TryParseDateOnly(from, out var fromD))
-            q = q.Where(x => x.SessionDate >= fromD);
-        if (TryParseDateOnly(to, out var toD))
-            q = q.Where(x => x.SessionDate <= toD);
+            if (TryParseDateOnly(from, out var fromD))
+                q = q.Where(x => x.SessionDate >= fromD);
+            if (TryParseDateOnly(to, out var toD))
+                q = q.Where(x => x.SessionDate <= toD);
 
-        if (classId.HasValue)
-            q = q.Where(x => x.ClassID == classId.Value);
-        if (teacherId.HasValue)
-            q = q.Where(x => x.TeacherId == teacherId.Value);
-        if (status.HasValue)
-        {
-            var st = status.Value;
-            q = q.Where(x => (int)x.Status == st);
-        }
+            if (classId.HasValue)
+                q = q.Where(x => x.ClassID == classId.Value);
+            if (teacherId.HasValue)
+                q = q.Where(x => x.TeacherId == teacherId.Value);
+            if (status.HasValue)
+            {
+                var st = status.Value;
+                q = q.Where(x => (int)x.Status == st);
+            }
 
-        q = q.OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime);
+            q = q.OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime);
 
-        if (forCalendar)
-        {
-            // Trả về gọn cho Calendar
-            var items = await q
-                .Select(s => new
-                {
-                    sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
-                    startTime = s.StartTime.ToString(@"hh\:mm"),
-                    endTime = s.EndTime.ToString(@"hh\:mm"),
-                    status = (int)s.Status,
-                    classId = s.ClassID,
-                    className = _db.Classes.Where(c => c.ClassID == s.ClassID).Select(c => c.ClassName).FirstOrDefault(),
-                    teacherName = _db.Teachers.Where(t => t.TeacherId == s.TeacherId).Select(t => t.TeacherName).FirstOrDefault()
-                })
-                .ToListAsync(ct);
+            if (forCalendar)
+            {
+                // Trả về gọn cho Calendar
+                var items = await q
+                    .Select(s => new
+                    {
+                        sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
+                        startTime = s.StartTime.ToString(@"hh\:mm"),
+                        endTime = s.EndTime.ToString(@"hh\:mm"),
+                        status = (int)s.Status,
+                        classId = s.ClassID,
+                        className = _db.Classes.Where(c => c.ClassID == s.ClassID).Select(c => c.ClassName).FirstOrDefault(),
+                        teacherName = _db.Teachers.Where(t => t.TeacherId == s.TeacherId).Select(t => t.TeacherName).FirstOrDefault()
+                    })
+                    .ToListAsync(ct);
 
-            return Ok(items);
-        }
+                return Ok(items);
+            }
             else
             {
                 var items = await q
@@ -534,5 +539,5 @@ namespace ArtCenterOnline.Server.Controllers
             }
         }
 
-}
+    }
 }
