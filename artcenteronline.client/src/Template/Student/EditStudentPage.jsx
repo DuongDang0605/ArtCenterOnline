@@ -138,7 +138,7 @@ export default function EditStudentPage() {
     }
 
     return (
-        <div className="content-wrapper">
+        <div >
             <section className="content-header">
                 <h1>CẬP NHẬT HỌC VIÊN</h1>
                 <ol className="breadcrumb">
@@ -150,7 +150,7 @@ export default function EditStudentPage() {
 
             <section className="content">
                 <div className="row">
-                    <div className="col-sm-12 col-md-11 col-lg-11">
+                    <div className="col-sm-12 col-md-12 col-lg-12">
                         <div className="box box-primary">
                             <div className="box-body">
                                 {errors.length > 0 && (

@@ -22,7 +22,6 @@ namespace ArtCenterOnline.Server.Controllers
             public string TeacherName { get; set; } = string.Empty;
             public string PhoneNumber { get; set; } = string.Empty;
             public int status { get; set; } = 1; // 1=active
-
         }
 
         public class TeacherUpdateDto
@@ -48,10 +47,10 @@ namespace ArtCenterOnline.Server.Controllers
             return role;
         }
 
-        // ===== GET: list — trả sessionsThisMonth từ TeacherMonthlyStat =====
+        // ===== GET: list — trả sessionsThisMonth từ TeacherMonthlyStat, và chỉ THÊM soBuoiDayThangTruoc =====
         [HttpGet]
         [Authorize(Roles = "Admin,Teacher")]
-        public async Task<ActionResult<IEnumerable<object>>> Get(CancellationToken ct)
+        public async Task<ActionResult<IEnumerable<object>>> GetAll(CancellationToken ct)
         {
             var today = DateTime.Today;
             int y = today.Year, m = today.Month;
@@ -106,8 +105,49 @@ namespace ArtCenterOnline.Server.Controllers
             return Ok(result);
         }
 
+        // ===== GET: chi tiết theo id — vẫn chỉ THÊM soBuoiDayThangTruoc, giữ nguyên các trường khác =====
+        [HttpGet("{id:int}")]
+        [Authorize(Roles = "Admin,Teacher")]
+        public async Task<ActionResult<object>> Get(int id, CancellationToken ct)
+        {
+            var today = DateTime.Today;
+            int y = today.Year, m = today.Month;
 
+            var firstThisDO = new DateOnly(y, m, 1);
+            var firstPrevDO = firstThisDO.AddMonths(-1);
 
+            const int STATUS_COMPLETED = 1;
+
+            var item = await _db.Teachers
+                .AsNoTracking()
+                .Include(t => t.User)
+                .Where(t => t.TeacherId == id)
+                .Select(t => new
+                {
+                    teacherId = t.TeacherId,
+                    userId = t.UserId,
+                    teacherName = t.TeacherName,
+                    phoneNumber = t.PhoneNumber,
+                    status = t.status,
+                    email = t.User != null ? t.User.Email : string.Empty,
+
+                    // giữ nguyên sessionsThisMonth từ TeacherMonthlyStats (tháng này)
+                    sessionsThisMonth = _db.TeacherMonthlyStats
+                        .Where(s => s.TeacherId == t.TeacherId && s.Year == y && s.Month == m)
+                        .Select(s => (int?)s.TaughtCount).FirstOrDefault() ?? 0,
+
+                    // chỉ thêm: số buổi dạy THÁNG TRƯỚC đếm trực tiếp từ ClassSessions
+                    soBuoiDayThangTruoc = _db.ClassSessions
+                        .Where(s => s.TeacherId == t.TeacherId
+                                 && s.SessionDate >= firstPrevDO
+                                 && s.SessionDate < firstThisDO
+                                 && (int)s.Status == STATUS_COMPLETED)
+                        .Count()
+                })
+                .FirstOrDefaultAsync(ct);
+
+            return item is null ? NotFound() : Ok(item);
+        }
 
         // ===== POST: create Teacher + User + assign Role(Teacher) =====
         [HttpPost]
@@ -145,7 +185,7 @@ namespace ArtCenterOnline.Server.Controllers
             // Assign role Teacher
             _db.UserRoles.Add(new UserRole { UserId = user.UserId, RoleId = teacherRole.RoleId });
 
-            // Create Teacher (KHÔNG còn SoBuoiDayTrongThang)
+            // Create Teacher
             var teacher = new TeacherInfo
             {
                 UserId = user.UserId,
@@ -156,15 +196,13 @@ namespace ArtCenterOnline.Server.Controllers
             _db.Teachers.Add(teacher);
             await _db.SaveChangesAsync();
 
+            // sessionsThisMonth (tháng này) từ TeacherMonthlyStats - giữ nguyên
             var today = DateTime.Today;
             int y = today.Year, m = today.Month;
-            var firstThis = new DateTime(y, m, 1);
-            var prev = firstThis.AddMonths(-1);
-            int yp = prev.Year, mp = prev.Month;
             int sessionsThisMonth = await _db.TeacherMonthlyStats
                 .Where(s => s.TeacherId == teacher.TeacherId && s.Year == y && s.Month == m)
                 .Select(s => (int?)s.TaughtCount).FirstOrDefaultAsync() ?? 0;
-            
+
             var dto = new
             {
                 teacherId = teacher.TeacherId,
@@ -173,8 +211,8 @@ namespace ArtCenterOnline.Server.Controllers
                 phoneNumber = teacher.PhoneNumber,
                 status = teacher.status,
                 email = user.Email,
-                sessionsThisMonth,
-               
+                sessionsThisMonth
+                // không thêm soBuoiDayThangTruoc ở POST (theo yêu cầu chỉ thêm ở view/list)
             };
 
             return CreatedAtAction(nameof(Get), new { id = teacher.TeacherId }, dto);

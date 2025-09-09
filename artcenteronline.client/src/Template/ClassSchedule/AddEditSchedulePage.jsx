@@ -268,11 +268,26 @@ export default function AddEditSchedulePage() {
                                             {teachers.map((t) => {
                                                 const idv = t.teacherId ?? t.TeacherId;
                                                 const name = t.teacherName ?? t.fullName ?? t.FullName ?? `(GV #${idv})`;
-                                                return <option key={idv} value={idv}>{name}</option>;
+                                                const st = (t.status ?? t.Status ?? (t.isActive ? 1 : 0)); // 1=đang dạy, 0=ngừng
+                                                const isDisabled = st !== 1;
+
+                                                return (
+                                                    <option
+                                                        key={idv}
+                                                        value={idv}
+                                                        disabled={isDisabled}
+                                                        title={isDisabled ? "Giáo viên ngừng dạy" : "Đang dạy"}
+                                                        style={isDisabled ? { color: "#999" } : undefined}
+                                                    >
+                                                        {name}{isDisabled ? " [Ngừng]" : ""}
+                                                    </option>
+                                                );
                                             })}
                                         </select>
+                                        
                                     </div>
                                 </div>
+
 
                                 {/* Giờ */}
                                 <div className="col-sm-2">

@@ -92,7 +92,7 @@ export default function AddStudentPage() {
     };
 
     return (
-        <div className="content-wrapper">
+        <>
             <section className="content-header">
                 <h1>THÊM HỌC VIÊN</h1>
                 <ol className="breadcrumb">
@@ -108,7 +108,7 @@ export default function AddStudentPage() {
 
             <section className="content">
                 <div className="row">
-                    <div className="col-md-10 col-lg-8">
+                    <div className="col-md-12 col-lg-12">
                         <div className="box box-primary">
                             <div className="box-header with-border">
                                 <h3 className="box-title">Thông tin học viên</h3>
@@ -255,6 +255,6 @@ export default function AddStudentPage() {
             <style>{`
         .is-invalid { border: 2px solid #dc3545 !important; background-color: #f8d7da !important; }
       `}</style>
-        </div>
+        </>
     );
 }

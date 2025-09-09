@@ -52,7 +52,7 @@ export default function AddTeacherPage() {
     }
 
     return (
-        <div className="content-wrapper">
+        <div >
             <section className="content-header">
                 <h1>THÊM GIÁO VIÊN</h1>
                 <ol className="breadcrumb">
@@ -64,7 +64,7 @@ export default function AddTeacherPage() {
 
             <section className="content">
                 <div className="row">
-                    <div className="col-sm-12 col-md-11 col-lg-11">
+                    <div className="col-sm-12 col-md-12 col-lg-12">
                         <div className="box box-primary">
                             <div className="box-body">
                                 {errors.length > 0 && (
