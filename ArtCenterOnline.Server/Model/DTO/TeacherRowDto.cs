@@ -8,6 +8,7 @@ namespace ArtCenterOnline.Server.Model.DTO
         string PhoneNumber,
         int SoBuoiDayTrongThang,
         int status,
-        string UserEmail
+        string UserEmail,
+        int SoBuoiDayThangTruoc
     );
 }

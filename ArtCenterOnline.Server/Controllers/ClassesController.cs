@@ -72,32 +72,68 @@ public class ClassesController : ControllerBase
     // ====== UPDATE (KHÔNG còn logic đổi GV chính) ======
     [HttpPut("{id:int}")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> Update(int id, [FromBody] ClassInfo input)
+    public async Task<IActionResult> Update(int id, [FromBody] ClassInfo payload, CancellationToken ct)
     {
-        if (id != input.ClassID) return BadRequest();
-
-        var item = await _db.Classes.FindAsync(id);
+        var item = await _db.Classes.FirstOrDefaultAsync(c => c.ClassID == id, ct);
         if (item is null) return NotFound();
 
-        // Chỉ cập nhật thông tin cơ bản của lớp
-        item.ClassName = input.ClassName;
-        item.DayStart = input.DayStart;
-        item.Branch = input.Branch;
-        item.Status = input.Status;
+        using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        await _db.SaveChangesAsync();
-        return NoContent();
+        var oldStatus = item.Status;
+        // cập nhật các trường khác…
+        item.ClassName = payload.ClassName?.Trim() ?? item.ClassName;
+        item.Branch = payload.Branch?.Trim() ?? item.Branch;
+        item.DayStart = payload.DayStart == default ? item.DayStart : payload.DayStart;
+        item.Status = payload.Status; // 0=dừng, 1=đang hoạt động, … (giữ mapping hiện tại)
+
+        await _db.SaveChangesAsync(ct);
+
+        // Nếu chuyển từ Đang hoạt động (1) sang Dừng (0) → Huỷ các buổi từ bây giờ trở đi
+        if (oldStatus == 1 && item.Status == 0)
+        {
+            var cancelled = await CancelFutureSessionsForClassAsync(item.ClassID, ct);
+            // (tuỳ chọn) có thể trả về cancelled count cho FE
+            await tx.CommitAsync(ct);
+            return Ok(new
+            {
+                message = $"Đã cập nhật lớp và huỷ {cancelled} buổi từ thời điểm tắt.",
+                classId = item.ClassID,
+                cancelled
+            });
+        }
+
+        await tx.CommitAsync(ct);
+        return Ok(new { message = "Đã cập nhật lớp.", classId = item.ClassID });
     }
 
-    // ====== DELETE ======
-    [HttpDelete("{id:int}")]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> Delete(int id)
+
+    // Hủy tất cả buổi của lớp từ "bây giờ" trở đi (tính theo local time).
+    private async Task<int> CancelFutureSessionsForClassAsync(int classId, CancellationToken ct = default)
     {
-        var item = await _db.Classes.FindAsync(id);
-        if (item is null) return NotFound();
-        _db.Classes.Remove(item);
-        await _db.SaveChangesAsync();
-        return NoContent();
+        var nowLocal = DateTime.Now;
+        var today = DateOnly.FromDateTime(nowLocal);
+        var nowSpan = new TimeSpan(nowLocal.Hour, nowLocal.Minute, 0);
+
+        var sessions = await _db.ClassSessions
+            .Where(s => s.ClassID == classId
+                        && s.Status != SessionStatus.Cancelled
+                        && (s.SessionDate > today
+                            || (s.SessionDate == today && s.StartTime >= nowSpan)))
+            .ToListAsync(ct);
+
+        if (sessions.Count == 0) return 0;
+
+        string stamp = $"{nowLocal:dd/MM/yyyy HH:mm}";
+        foreach (var s in sessions)
+        {
+            s.Status = SessionStatus.Cancelled;
+            s.Note = string.IsNullOrWhiteSpace(s.Note)
+                ? $"(Huỷ do lớp bị tắt lúc {stamp})"
+                : $"{s.Note} | Huỷ do lớp bị tắt lúc {stamp}";
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return sessions.Count;
     }
+
 }

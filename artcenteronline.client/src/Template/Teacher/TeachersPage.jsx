@@ -20,6 +20,7 @@ export default function TeachersPage() {
         const userId = x[pick("userId", "UserId")];
         const name = x[pick("teacherName", "TeacherName", "name")];
         const phone = x[pick("phoneNumber", "PhoneNumber", "phone")];
+        const soBuoiDayThangTruoc = x[pick("SoBuoiDayThangTruoc", "soBuoiDayThangTruoc")];
         const sessionsPerMonth =
             x["sessionsThisMonth"] // mới từ BE
             ?? 0;
@@ -32,7 +33,7 @@ export default function TeachersPage() {
             statusNum = (s === "1" || s === "active" || s === "đang dạy" || s === "đang hoạt động") ? 1 : 0;
         }
         const email = x[pick("userEmail", "UserEmail", "email")] ?? "";
-        return { id, userId: userId ?? "", name: name ?? "", phone: phone ?? "", sessionsPerMonth, statusNum, email };
+        return { id, userId: userId ?? "", name: name ?? "", phone: phone ?? "", sessionsPerMonth,soBuoiDayThangTruoc, statusNum, email };
     };
 
     useEffect(() => {
@@ -134,6 +135,7 @@ export default function TeachersPage() {
                                             <th>User Email</th>
                                             <th>Tên giáo viên</th>
                                             <th>Số điện thoại</th>
+                                            <th>Số buổi dạy tháng trước</th>
                                             <th>Số buổi dạy/tháng</th>
                                             <th>Trạng thái</th>
                                             <th>Hành Động</th>
@@ -146,6 +148,7 @@ export default function TeachersPage() {
                                                 <td>{r.email}</td>
                                                 <td>{r.name}</td>
                                                 <td>{r.phone}</td>
+                                                <td>{r.soBuoiDayThangTruoc }</td>
                                                 <td>{r.sessionsPerMonth}</td>
                                                 <td>
                                                     <span className={`label ${r.statusNum === 1 ? "label-success" : "label-default"}`}>

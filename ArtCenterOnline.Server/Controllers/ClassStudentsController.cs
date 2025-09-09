@@ -3,6 +3,7 @@ using ArtCenterOnline.Server.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace ArtCenterOnline.Server.Controllers;
 
@@ -13,6 +14,9 @@ public class ClassStudentsController : ControllerBase
 {
     private readonly AppDbContext _db;
     public ClassStudentsController(AppDbContext db) => _db = db;
+
+    private bool IsAdmin => User.IsInRole("Admin");
+    private IActionResult Msg(int status, string message) => StatusCode(status, new { message });
 
     public sealed class ClassStudentBatchAddDto
     {
@@ -25,25 +29,43 @@ public class ClassStudentsController : ControllerBase
         public bool IsActive { get; set; }
     }
 
-    // Thêm 1 học viên vào lớp — AdminOnly
+    // Thêm 1 học viên vào lớp — yêu cầu Admin; Teacher sẽ nhận message rõ ràng (409 + message)
     [HttpPost]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> Add([FromBody] ClassStudent input)
+    [Authorize(Roles = "Admin,Teacher")]
+    public async Task<IActionResult> Add([FromBody] ClassStudent? input)
     {
-        if (input == null) return BadRequest("Body is required.");
+        if (!IsAdmin)
+            return Msg(409, "Chỉ Admin được thêm học viên vào lớp.");
 
-        var clsExists = await _db.Classes.AnyAsync(c => c.ClassID == input.ClassID);
-        if (!clsExists) return NotFound("Class not found.");
+        var errors = new List<string>();
+        if (input is null)
+        {
+            errors.Add("Thiếu body.");
+        }
+        else
+        {
+            var cls = await _db.Classes.AsNoTracking().FirstOrDefaultAsync(c => c.ClassID == input.ClassID);
+            if (cls is null) errors.Add($"Không tồn tại lớp #{input.ClassID}.");
 
-        var student = await _db.Students.FirstOrDefaultAsync(s => s.StudentId == input.StudentId);
-        if (student == null) return NotFound("Student not found.");
-        if (student.Status == 0) return Conflict("Student is inactive and cannot be added to a class.");
+            var stu = await _db.Students.AsNoTracking().FirstOrDefaultAsync(s => s.StudentId == input.StudentId);
+            if (stu is null) errors.Add($"Không tìm thấy học viên #{input.StudentId}.");
+            else if (stu.Status == 0) errors.Add("Học viên đang nghỉ hệ thống (Status=0), không thể thêm vào lớp.");
 
-        var exists = await _db.ClassStudents
-            .AnyAsync(x => x.ClassID == input.ClassID && x.StudentId == input.StudentId);
-        if (exists) return Conflict("Student already in class.");
+            var exists = await _db.ClassStudents
+                .AnyAsync(x => x.ClassID == input.ClassID && x.StudentId == input.StudentId);
+            if (exists) errors.Add("Học viên đã có trong lớp.");
+        }
 
-        if (input.JoinedDate == default)
+        if (errors.Count > 0)
+        {
+            var pd = new ValidationProblemDetails(new Dictionary<string, string[]>
+            {
+                ["General"] = errors.ToArray()
+            });
+            return ValidationProblem(pd);
+        }
+
+        if (input!.JoinedDate == default)
             input.JoinedDate = DateOnly.FromDateTime(DateTime.UtcNow);
         input.IsActive = true;
 
@@ -52,14 +74,19 @@ public class ClassStudentsController : ControllerBase
         return Ok(new { ok = true });
     }
 
-    // Thêm nhiều học viên — AdminOnly
+    // Thêm nhiều học viên — Admin; Teacher nhận message
     [HttpPost("batch")]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> BatchAdd([FromBody] ClassStudentBatchAddDto dto)
+    [Authorize(Roles = "Admin,Teacher")]
+    public async Task<IActionResult> BatchAdd([FromBody] ClassStudentBatchAddDto? dto)
     {
-        if (dto == null || dto.StudentIds.Count == 0) return BadRequest("Empty list.");
+        if (!IsAdmin)
+            return Msg(409, "Chỉ Admin được thêm học viên vào lớp.");
+
+        if (dto is null || dto.StudentIds.Count == 0)
+            return BadRequest(new { message = "Danh sách học viên trống." });
+
         var cls = await _db.Classes.FindAsync(dto.ClassID);
-        if (cls == null) return NotFound("Class not found.");
+        if (cls == null) return NotFound(new { message = "Không tìm thấy lớp." });
 
         // Lọc học sinh đang active toàn hệ thống
         var activeStudents = await _db.Students
@@ -74,7 +101,7 @@ public class ClassStudentsController : ControllerBase
 
         var toAddIds = activeStudents.Except(existingIds).ToList();
         if (toAddIds.Count == 0)
-            return Ok(new { added = 0, note = "No eligible active students to add." });
+            return Ok(new { added = 0, note = "Không có học viên hợp lệ để thêm." });
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var rows = toAddIds.Select(id => new ClassStudent
@@ -91,60 +118,81 @@ public class ClassStudentsController : ControllerBase
     }
 
     // Danh sách học viên trong lớp — Admin & Teacher
+    // Danh sách học viên trong lớp — Admin & Teacher
     [HttpGet("in-class/{classId:int}")]
     [Authorize(Roles = "Admin,Teacher")]
     public async Task<ActionResult<IEnumerable<object>>> GetInClass(int classId)
     {
-        var q = from cs in _db.ClassStudents
-                join s in _db.Students on cs.StudentId equals s.StudentId
-                join c in _db.Classes on cs.ClassID equals c.ClassID
-                where cs.ClassID == classId
-                orderby s.StudentName
-                select new
-                {
-                    cs.ClassID,
-                    cs.StudentId,
-                    ClassName = c.ClassName,
-                    StudentName = s.StudentName,
-                    cs.IsActive,
-                    cs.JoinedDate,
-                    cs.Note
-                };
+        var q =
+            from cs in _db.ClassStudents
+            join s in _db.Students on cs.StudentId equals s.StudentId
+            join c in _db.Classes on cs.ClassID equals c.ClassID
+            where cs.ClassID == classId
+            orderby s.StudentName
+            select new
+            {
+                cs.ClassID,
+                cs.StudentId,
+
+                // Thông tin lớp + học viên
+                ClassName = c.ClassName,
+                StudentName = s.StudentName,
+
+                // ✅ Trả đủ các trường “ở giữa” mà bảng đang hiển thị
+                ParentName = s.ParentName,
+                PhoneNumber = s.PhoneNumber,
+                Adress = s.Adress,          // (đúng chính tả theo model)
+                ngayBatDauHoc = s.ngayBatDauHoc, // (giữ tên y hệt model để FE đọc được)
+
+                // Trạng thái trong lớp
+                cs.IsActive,
+                cs.JoinedDate,
+                cs.Note
+            };
 
         var data = await q.AsNoTracking().ToListAsync();
         return Ok(data);
     }
 
-    // Bật/tắt IsActive — AdminOnly
+    // Bật/tắt IsActive — Admin; Teacher nhận message rõ ràng
     [HttpPut("{classId:int}/{studentId:int}/active")]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> SetActive(int classId, int studentId, [FromBody] ClassStudentSetActiveDto dto)
+    [Authorize(Roles = "Admin,Teacher")]
+    public async Task<IActionResult> SetActive(int classId, int studentId, [FromBody] ClassStudentSetActiveDto? dto)
     {
+        if (!IsAdmin)
+            return Msg(409, "Chỉ Admin được bật/tắt trạng thái học viên trong lớp.");
+
+        if (dto is null) return BadRequest(new { message = "Thiếu body { isActive }." });
+
         var row = await _db.ClassStudents
             .SingleOrDefaultAsync(x => x.ClassID == classId && x.StudentId == studentId);
+        if (row == null) return NotFound(new { message = "Không tìm thấy liên kết lớp–học viên." });
 
-        if (row == null) return NotFound();
-
-        // Nếu Student đã nghỉ (Status=0) thì không cho bật lại liên kết lớp
         var student = await _db.Students.AsNoTracking().FirstOrDefaultAsync(s => s.StudentId == studentId);
-        if (student == null) return NotFound("Student not found.");
+        if (student == null) return NotFound(new { message = "Không tìm thấy học viên." });
         if (dto.IsActive && student.Status == 0)
-            return Conflict("Student is inactive. Cannot activate class link.");
+            return Conflict(new { message = "Học viên đã nghỉ hệ thống (Status=0). Không thể kích hoạt trong lớp." });
+
+        if (dto.IsActive == row.IsActive)
+            return Ok(new { ok = false, isActive = row.IsActive, note = "Trạng thái không thay đổi." });
 
         row.IsActive = dto.IsActive;
         await _db.SaveChangesAsync();
         return Ok(new { ok = true, isActive = row.IsActive });
     }
 
-    // Loại học viên khỏi lớp — AdminOnly
+    // Loại học viên khỏi lớp — Admin; Teacher nhận message
     [HttpDelete("{classId:int}/{studentId:int}")]
-    [Authorize(Policy = "AdminOnly")]
+    [Authorize(Roles = "Admin,Teacher")]
     public async Task<IActionResult> Remove(int classId, int studentId)
     {
+        if (!IsAdmin)
+            return Msg(409, "Chỉ Admin được xoá học viên khỏi lớp.");
+
         var row = await _db.ClassStudents
             .SingleOrDefaultAsync(x => x.ClassID == classId && x.StudentId == studentId);
 
-        if (row == null) return NotFound();
+        if (row == null) return NotFound(new { message = "Không tìm thấy liên kết lớp–học viên." });
         _db.ClassStudents.Remove(row);
         await _db.SaveChangesAsync();
         return Ok(new { ok = true });
