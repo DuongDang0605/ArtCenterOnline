@@ -132,16 +132,31 @@ namespace ArtCenterOnline.Server.Services.Reports
             ws.Cell(row, 1).Value = "Học viên";
             ws.Cell(row, 2).Value = "Mã HV";
 
-            // Cột buổi
+            // Cột buổi — thêm tên giáo viên theo từng buổi
             for (int i = 0; i < sessions.Count; i++)
             {
                 var s = sessions[i];
                 string dayName = CultureInfo.GetCultureInfo("vi-VN").DateTimeFormat
-                    .GetAbbreviatedDayName((DayOfWeek)((int)s.SessionDate.DayOfWeek));
+                    .GetAbbreviatedDayName(s.SessionDate.DayOfWeek);
+
+                // Lấy tên GV cho cột
+                string teacherLabel = "—";
+                if (s.TeacherId.HasValue)
+                {
+                    if (teacherNamesMap.TryGetValue(s.TeacherId.Value, out var tname) && !string.IsNullOrWhiteSpace(tname))
+                        teacherLabel = tname;
+                    else
+                        teacherLabel = $"GV #{s.TeacherId.Value}";
+                }
+
                 var title = $"{s.SessionDate:dd/MM} ({dayName})\n{s.StartTime:hh\\:mm}" +
-                            (s.Status == SessionStatus.Cancelled ? " (Hủy)" : "");
+                            (s.Status == SessionStatus.Cancelled ? " (Hủy)" : "") +
+                            $"\nGV: {teacherLabel}";
+
                 ws.Cell(row, 3 + i).Value = title;
                 ws.Cell(row, 3 + i).Style.Alignment.WrapText = true;
+                ws.Cell(row, 3 + i).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 3 + i).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
             }
             row++;
 

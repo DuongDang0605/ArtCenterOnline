@@ -228,7 +228,11 @@ export default function ClassSchedulesPage() {
                         <Link className="btn btn-primary" to={`/classes/${classId}/schedules/new`}>
                             <i className="fa fa-plus" /> Thêm lịch
                         </Link>
+                        <Link to={`/classes`} className="btn btn-default" style={{ marginLeft: 10 }}>
+                            Quay lại
+                        </Link>
                     </div>
+                   
 
                     <div className="box-body table-responsive">
                         <table ref={tableRef} className="table table-hover" style={{ width: "100%" }}>

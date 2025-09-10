@@ -374,7 +374,7 @@ body.fixed.sidebar-mini.sidebar-collapse .right-side {
 
 /* Ép dropdown header thấp gọn, không ảnh */
 .navbar-nav > li.user-menu > .dropdown-menu > li.user-header {
-    height: 60px !important;
+/*    height: 60px !important;*/
     padding: 10px 12px !important;
     display: flex !important;
     align-items: center;
