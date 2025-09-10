@@ -1,12 +1,29 @@
 ﻿// src/Template/Teacher/TeachersPage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { getTeachers } from "./Teachers";
-import { Link } from "react-router-dom";
-import { useAuth } from "../../auth/authCore"; // thêm
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { getTeachers } from "./teachers"; // sửa path cho đúng
+import { useAuth } from "../../auth/authCore";
 
 export default function TeachersPage() {
     const { roles = [] } = useAuth();
     const isAdmin = roles.includes("Admin");
+
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    const [notice, setNotice] = useState(location.state?.notice || "");
+    useEffect(() => {
+        if (location.state?.notice) {
+            // xóa state để F5 không lặp lại
+            setTimeout(() => navigate(".", { replace: true, state: {} }), 0);
+        }
+    }, []); // eslint-disable-line
+
+    useEffect(() => {
+        if (!notice) return;
+        const t = setTimeout(() => setNotice(""), 4000);
+        return () => clearTimeout(t);
+    }, [notice]);
 
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -21,9 +38,7 @@ export default function TeachersPage() {
         const name = x[pick("teacherName", "TeacherName", "name")];
         const phone = x[pick("phoneNumber", "PhoneNumber", "phone")];
         const soBuoiDayThangTruoc = x[pick("SoBuoiDayThangTruoc", "soBuoiDayThangTruoc")];
-        const sessionsPerMonth =
-            x["sessionsThisMonth"] // mới từ BE
-            ?? 0;
+        const sessionsPerMonth = x["sessionsThisMonth"] ?? 0;
         const rawStatus = x[pick("status", "Status", "statusNumber")] ?? 0;
         let statusNum = 0;
         if (typeof rawStatus === "number") statusNum = rawStatus ? 1 : 0;
@@ -33,7 +48,7 @@ export default function TeachersPage() {
             statusNum = (s === "1" || s === "active" || s === "đang dạy" || s === "đang hoạt động") ? 1 : 0;
         }
         const email = x[pick("userEmail", "UserEmail", "email")] ?? "";
-        return { id, userId: userId ?? "", name: name ?? "", phone: phone ?? "", sessionsPerMonth,soBuoiDayThangTruoc, statusNum, email };
+        return { id, userId: userId ?? "", name: name ?? "", phone: phone ?? "", sessionsPerMonth, soBuoiDayThangTruoc, statusNum, email };
     };
 
     useEffect(() => {
@@ -42,8 +57,7 @@ export default function TeachersPage() {
             try {
                 const data = await getTeachers();
                 if (!alive) return;
-                const arr = Array.isArray(data) ? data : [];
-                const normalized = arr.map((x, i) => normalizeItem(x, i));
+                const normalized = (Array.isArray(data) ? data : []).map((x, i) => normalizeItem(x, i));
                 setRows(normalized);
             } catch (e) {
                 if (alive) setErr(e?.message || "Fetch failed");
@@ -58,7 +72,7 @@ export default function TeachersPage() {
         if (loading || err) return;
         const $ = window.jQuery || window.$;
         const el = tableRef.current;
-        if (!$?.fn?.DataTable || !el) return;
+        if (!$.fn?.DataTable || !el) return;
         if ($.fn.DataTable.isDataTable(el)) {
             $(el).DataTable().destroy(true);
         }
@@ -105,6 +119,17 @@ export default function TeachersPage() {
 
     return (
         <>
+            {/* Toast success (tự ẩn 4s) */}
+            {notice && (
+                <div
+                    className="alert alert-success"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={() => setNotice("")}><span>&times;</span></button>
+                    {notice}
+                </div>
+            )}
+
             <section className="content-header">
                 <h1>Danh sách giáo viên</h1>
                 <ol className="breadcrumb">
@@ -148,7 +173,7 @@ export default function TeachersPage() {
                                                 <td>{r.email}</td>
                                                 <td>{r.name}</td>
                                                 <td>{r.phone}</td>
-                                                <td>{r.soBuoiDayThangTruoc }</td>
+                                                <td>{r.soBuoiDayThangTruoc}</td>
                                                 <td>{r.sessionsPerMonth}</td>
                                                 <td>
                                                     <span className={`label ${r.statusNum === 1 ? "label-success" : "label-default"}`}>

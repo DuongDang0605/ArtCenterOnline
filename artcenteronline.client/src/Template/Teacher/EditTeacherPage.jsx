@@ -3,9 +3,31 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getTeacher, updateTeacher } from "./teachers";
 
+const AUTO_DISMISS = 5000;
+function useToast() {
+    const [msg, setMsg] = useState("");
+    const [remaining, setRemaining] = useState(0);
+    useEffect(() => {
+        if (!msg) return;
+        const start = Date.now();
+        const iv = setInterval(() => {
+            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
+            setRemaining(left);
+            if (left === 0) setMsg("");
+        }, 100);
+        return () => clearInterval(iv);
+    }, [msg]);
+    return { msg, remaining, show: (m) => { setMsg(m || "Đã xảy ra lỗi."); setRemaining(AUTO_DISMISS); }, hide: () => setMsg("") };
+}
+function extractErr(e) {
+    const r = e?.response;
+    return r?.data?.message || r?.data?.detail || r?.data?.title || (typeof r?.data === "string" ? r.data : null) || e?.message || "Có lỗi xảy ra.";
+}
+
 export default function EditTeacherPage() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const toast = useToast();
 
     const [form, setForm] = useState({
         TeacherId: Number(id),
@@ -16,7 +38,6 @@ export default function EditTeacherPage() {
         status: 1,
         Password: "",
     });
-    const [errors, setErrors] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
@@ -30,31 +51,30 @@ export default function EditTeacherPage() {
                     ...f,
                     TeacherId: Number(data?.teacherId ?? data?.TeacherId ?? id),
                     UserId: Number(data?.userId ?? data?.UserId ?? 0),
-                    Email: String(data?.email ?? data?.Email ?? ""),
+                    Email: String(data?.userEmail ?? data?.email ?? data?.Email ?? ""),
                     TeacherName: String(data?.teacherName ?? data?.TeacherName ?? ""),
                     PhoneNumber: String(data?.phoneNumber ?? data?.PhoneNumber ?? ""),
                     status: Number(data?.status ?? data?.Status ?? 1),
                 }));
             } catch (e) {
-                console.error(e);
-                setErrors([e?.message || "Tải dữ liệu thất bại."]);
+                toast.show(extractErr(e));
             } finally {
                 setLoading(false);
             }
         })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     function validate() {
-        const es = [];
-        if (!String(form.TeacherName || "").trim()) es.push("Vui lòng nhập Tên giáo viên.");
-        if (!String(form.PhoneNumber || "").trim()) es.push("Vui lòng nhập Số điện thoại.");
-        setErrors(es);
-        return es.length === 0;
+        if (!String(form.TeacherName || "").trim()) return "Vui lòng nhập Tên giáo viên.";
+        if (!String(form.PhoneNumber || "").trim()) return "Vui lòng nhập Số điện thoại.";
+        return "";
     }
 
     async function onSubmit(e) {
         e.preventDefault();
-        if (!validate()) return;
+        const v = validate();
+        if (v) return toast.show(v);
 
         setSaving(true);
         try {
@@ -67,21 +87,20 @@ export default function EditTeacherPage() {
                 PhoneNumber: form.PhoneNumber?.trim() || "",
                 status: Number(form.status),
             });
-            navigate("/teachers");
+            navigate("/teachers", { state: { notice: "Đã cập nhật giáo viên." } });
         } catch (e) {
-            console.error(e);
-            setErrors([e?.message || "Cập nhật thất bại."]);
+            toast.show(extractErr(e));
         } finally {
             setSaving(false);
         }
     }
 
     if (loading) {
-        return <div className="content-wrapper"><section className="content"><p>Đang tải...</p></section></div>;
+        return <div className="content-wrapper"><section className="content"><p>Đang tải…</p></section></div>;
     }
 
     return (
-        <div >
+        <div>
             <section className="content-header">
                 <h1>SỬA GIÁO VIÊN</h1>
                 <ol className="breadcrumb">
@@ -96,14 +115,6 @@ export default function EditTeacherPage() {
                     <div className="col-sm-12 col-md-12 col-lg-12">
                         <div className="box box-primary">
                             <div className="box-body">
-                                {errors.length > 0 && (
-                                    <div className="alert alert-danger">
-                                        <ul style={{ marginBottom: 0 }}>
-                                            {errors.map((err, i) => <li key={i}>{err}</li>)}
-                                        </ul>
-                                    </div>
-                                )}
-
                                 <form onSubmit={onSubmit}>
                                     <div className="form-group">
                                         <label htmlFor="Email">Email (tuỳ chọn)</label>
@@ -148,6 +159,26 @@ export default function EditTeacherPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toast lỗi nổi */}
+            {toast.msg && (
+                <div
+                    className="alert alert-danger"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={toast.hide}><span>&times;</span></button>
+                    {toast.msg}
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s</div>
+                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                        <div style={{
+                            height: "100%",
+                            width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
+                            transition: "width 100ms linear",
+                            background: "#a94442"
+                        }} />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

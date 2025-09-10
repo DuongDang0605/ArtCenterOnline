@@ -1,10 +1,46 @@
 ﻿// src/Template/Teacher/AddTeacherPage.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createTeacher } from "./teachers";
 
+// ===== Toast error giống Schedule =====
+const AUTO_DISMISS = 5000;
+function useToast() {
+    const [msg, setMsg] = useState("");
+    const [remaining, setRemaining] = useState(0);
+    useEffect(() => {
+        if (!msg) return;
+        const start = Date.now();
+        const iv = setInterval(() => {
+            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
+            setRemaining(left);
+            if (left === 0) setMsg("");
+        }, 100);
+        return () => clearInterval(iv);
+    }, [msg]);
+    return {
+        msg,
+        remaining,
+        show: (m) => { setMsg(m || "Đã xảy ra lỗi."); setRemaining(AUTO_DISMISS); },
+        hide: () => setMsg(""),
+    };
+}
+
+function extractErr(e) {
+    const r = e?.response;
+    return (
+        r?.data?.message ||
+        r?.data?.detail ||
+        r?.data?.title ||
+        (typeof r?.data === "string" ? r.data : null) ||
+        e?.message ||
+        "Có lỗi xảy ra."
+    );
+}
+
 export default function AddTeacherPage() {
     const navigate = useNavigate();
+    const toast = useToast();
 
     const [form, setForm] = useState({
         Email: "",
@@ -13,25 +49,23 @@ export default function AddTeacherPage() {
         PhoneNumber: "",
         status: 1,
     });
-    const [errors, setErrors] = useState([]);
     const [saving, setSaving] = useState(false);
 
     const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
     function validate() {
-        const es = [];
-        if (!form.Email.trim()) es.push("Vui lòng nhập Email.");
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.Email.trim())) es.push("Email không hợp lệ.");
-        if (!form.Password || String(form.Password).length < 6) es.push("Password phải ít nhất 6 ký tự.");
-        if (!form.TeacherName.trim()) es.push("Vui lòng nhập Tên giáo viên.");
-        if (!form.PhoneNumber.trim()) es.push("Vui lòng nhập Số điện thoại.");
-        setErrors(es);
-        return es.length === 0;
+        if (!form.Email.trim()) return "Vui lòng nhập Email.";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.Email.trim())) return "Email không hợp lệ.";
+        if (!form.Password || String(form.Password).length < 6) return "Mật khẩu phải ít nhất 6 ký tự.";
+        if (!form.TeacherName.trim()) return "Vui lòng nhập Tên giáo viên.";
+        if (!form.PhoneNumber.trim()) return "Vui lòng nhập Số điện thoại.";
+        return "";
     }
 
     async function onSubmit(e) {
         e.preventDefault();
-        if (!validate()) return;
+        const v = validate();
+        if (v) return toast.show(v);
 
         setSaving(true);
         try {
@@ -42,17 +76,17 @@ export default function AddTeacherPage() {
                 PhoneNumber: form.PhoneNumber.trim(),
                 status: Number(form.status),
             });
-            navigate("/teachers");
+            // Không hiện tài khoản/mật khẩu — chỉ báo success ở Page
+            navigate("/teachers", { state: { notice: "Đã thêm giáo viên mới." } });
         } catch (e) {
-            console.error(e);
-            setErrors([e?.message || "Tạo giáo viên thất bại."]);
+            toast.show(extractErr(e));
         } finally {
             setSaving(false);
         }
     }
 
     return (
-        <div >
+        <div>
             <section className="content-header">
                 <h1>THÊM GIÁO VIÊN</h1>
                 <ol className="breadcrumb">
@@ -67,14 +101,6 @@ export default function AddTeacherPage() {
                     <div className="col-sm-12 col-md-12 col-lg-12">
                         <div className="box box-primary">
                             <div className="box-body">
-                                {errors.length > 0 && (
-                                    <div className="alert alert-danger">
-                                        <ul style={{ marginBottom: 0 }}>
-                                            {errors.map((err, i) => <li key={i}>{err}</li>)}
-                                        </ul>
-                                    </div>
-                                )}
-
                                 <form onSubmit={onSubmit}>
                                     <div className="form-group">
                                         <label htmlFor="Email">Email</label>
@@ -83,7 +109,7 @@ export default function AddTeacherPage() {
                                     </div>
 
                                     <div className="form-group">
-                                        <label htmlFor="Password">Password</label>
+                                        <label htmlFor="Password">Mật khẩu</label>
                                         <input id="Password" className="form-control" type="password"
                                             value={form.Password} onChange={(e) => setField("Password", e.target.value)} required />
                                     </div>
@@ -119,6 +145,26 @@ export default function AddTeacherPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toast lỗi nổi */}
+            {toast.msg && (
+                <div
+                    className="alert alert-danger"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={toast.hide}><span>&times;</span></button>
+                    {toast.msg}
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s</div>
+                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                        <div style={{
+                            height: "100%",
+                            width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
+                            transition: "width 100ms linear",
+                            background: "#a94442"
+                        }} />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

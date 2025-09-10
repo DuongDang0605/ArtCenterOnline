@@ -1,21 +1,41 @@
 ﻿// src/Template/Student/StudentsPage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getStudents } from "./students";
-import { useAuth } from "../../auth/authCore"; // thêm dòng này
+import { useAuth } from "../../auth/authCore";
 
 export default function StudentsPage() {
     const { roles = [] } = useAuth();
     const isAdmin = roles.includes("Admin");
 
+    const navigate = useNavigate();
+    const location = useLocation();
+
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
 
+    // === Toast thành công giống ClassSchedulesPage ===
+    const [notice, setNotice] = useState(location.state?.notice || "");
+    useEffect(() => {
+        if (location.state?.notice) {
+            // clear route state sau một tick (y như bên schedule)
+            setTimeout(() => {
+                navigate(".", { replace: true, state: {} });
+            }, 0);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    useEffect(() => {
+        if (!notice) return;
+        const t = setTimeout(() => setNotice(""), 4000);
+        return () => clearTimeout(t);
+    }, [notice]); // :contentReference[oaicite:3]{index=3}
+
     const tableRef = useRef(null);
     const dtRef = useRef(null);
 
-    // Chuẩn hoá từng item từ API về format thống nhất cho UI
+    // Chuẩn hóa từng item từ API
     const normalizeItem = (x, i) => {
         const pick = (...keys) => keys.find((k) => x?.[k] !== undefined) ?? null;
 
@@ -84,12 +104,10 @@ export default function StudentsPage() {
                 if (alive) setLoading(false);
             }
         })();
-        return () => {
-            alive = false;
-        };
+        return () => { alive = false; };
     }, []);
 
-    // Init DataTable
+    // Init DataTable (giữ nguyên)
     useEffect(() => {
         if (loading || err) return;
 
@@ -124,16 +142,8 @@ export default function StudentsPage() {
                 processing: "Đang xử lý...",
                 search: "Tìm kiếm:",
                 zeroRecords: "Không tìm thấy kết quả phù hợp",
-                paginate: {
-                    first: "Đầu",
-                    last: "Cuối",
-                    next: "Sau",
-                    previous: "Trước",
-                },
-                aria: {
-                    sortAscending: ": sắp xếp tăng dần",
-                    sortDescending: ": sắp xếp giảm dần",
-                },
+                paginate: { first: "Đầu", last: "Cuối", next: "Sau", previous: "Trước" },
+                aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
                 { targets: 0, width: 80 },
@@ -155,23 +165,30 @@ export default function StudentsPage() {
         return () => {
             window.removeEventListener("resize", onResize);
             obs.disconnect();
-            try {
-                dt.destroy(true);
-            } catch { /* empty */ }
+            try { dt.destroy(true); } catch { /* empty */ }
             dtRef.current = null;
         };
     }, [loading, err, rows]);
 
     return (
         <>
+            {/* Toast thành công (tự ẩn sau 4s) */}
+            {notice && (
+                <div
+                    className="alert alert-success"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={() => setNotice("")} aria-label="Close" style={{ marginLeft: 8 }}>
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    {notice}
+                </div>
+            )}
+
             <section className="content-header">
                 <h1>Danh sách học viên</h1>
                 <ol className="breadcrumb">
-                    <li>
-                        <a href="#">
-                            <i className="fa fa-dashboard" /> Trang chủ
-                        </a>
-                    </li>
+                    <li><a href="#"><i className="fa fa-dashboard" /> Trang chủ</a></li>
                     <li className="active">Học viên</li>
                 </ol>
             </section>
@@ -184,7 +201,7 @@ export default function StudentsPage() {
 
                     <div className="box-body">
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <p className="text-red">Lỗi: {err}</p>}
+                        {err && <div className="alert alert-danger">{err}</div>}
 
                         {!loading && !err && (
                             <div className="table-responsive">
@@ -203,7 +220,6 @@ export default function StudentsPage() {
                                             <th>Địa chỉ</th>
                                             <th>Ngày nhập học</th>
                                             <th>Số buổi đã học</th>
-                                          
                                             <th>Trạng thái</th>
                                             <th>Hành động</th>
                                         </tr>
@@ -219,22 +235,14 @@ export default function StudentsPage() {
                                                 <td>{r.address}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>{r.learned}</td>
-                                          
                                                 <td>
-                                                    <span
-                                                        className={
-                                                            "label " + (r.statusNum === 1 ? "label-success" : "label-default")
-                                                        }
-                                                    >
+                                                    <span className={"label " + (r.statusNum === 1 ? "label-success" : "label-default")}>
                                                         {r.statusNum === 1 ? "Đang học" : "Ngừng học"}
                                                     </span>
                                                 </td>
                                                 <td>
                                                     {isAdmin ? (
-                                                        <Link
-                                                            to={`/students/${r.id}/edit`}
-                                                            className="btn btn-xs btn-primary"
-                                                        >
+                                                        <Link to={`/students/${r.id}/edit`} className="btn btn-xs btn-primary">
                                                             <i className="fa fa-edit" /> Cập nhật
                                                         </Link>
                                                     ) : (

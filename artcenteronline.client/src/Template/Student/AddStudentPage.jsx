@@ -3,10 +3,32 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createStudent } from "./students.js";
 
+/** dd/MM/yyyy -> ISO yyyy-MM-dd (or null if invalid) */
+function dmyToISO(dmy) {
+    if (!dmy) return null;
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dmy.trim());
+    if (!m) return null;
+    const dd = parseInt(m[1], 10), mm = parseInt(m[2], 10), yyyy = parseInt(m[3], 10);
+    const d = new Date(yyyy, mm - 1, dd);
+    if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+    return d.toISOString().slice(0, 10);
+}
+
+/** ISO yyyy-MM-dd -> dd/MM/yyyy */
+function isoToDMY(iso) {
+    if (!iso) return "";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!m) return "";
+    return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 export default function AddStudentPage() {
     const navigate = useNavigate();
     const [saving, setSaving] = useState(false);
     const [errors, setErrors] = useState([]);
+
+    // Thông tin thành công để bật modal
+    const [successInfo, setSuccessInfo] = useState(null); // { studentId, email, tempPassword }
 
     // --- form state gửi lên BE (ngày ở dạng ISO yyyy-MM-dd)
     const [form, setForm] = useState({
@@ -14,46 +36,27 @@ export default function AddStudentPage() {
         ParentName: "",
         PhoneNumber: "",
         Adress: "",
-        ngayBatDauHoc: "", // ISO yyyy-MM-dd
-        SoBuoiDaHoc: 0,
-        status: 1, // 1: Đang học, 0: Nghỉ
+        ngayBatDauHoc: "", // ISO
+        SoBuoiHocDaHoc: 0,
+        SoBuoiHocConLai: 0,
+        Status: 1
     });
 
-    // --- text cho UI nhập ngày (dd/MM/yyyy)
+    // Trường hiển thị ngày ở định dạng dd/MM/yyyy
     const [ngayBatDauHocText, setNgayBatDauHocText] = useState("");
 
-    // ===== Helpers dd/MM/yyyy <-> yyyy-MM-dd =====
-    const pad2 = (n) => String(n).padStart(2, "0");
-
-    function dmyToISO(dmy) {
-        const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(dmy || "");
-        if (!m) return null;
-        const d = +m[1], mo = +m[2], y = +m[3];
-        const dt = new Date(y, mo - 1, d);
-        if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
-        return `${y}-${pad2(mo)}-${pad2(d)}`;
-    }
-
-    function isoToDMY(iso) {
-        if (!iso) return "";
-        const [y, mo, d] = String(iso).split("-");
-        return `${d}/${mo}/${y}`;
-    }
-
-    // nếu có giá trị mặc định ở form.ngayBatDauHoc thì hiển thị text tương ứng
     useEffect(() => {
         setNgayBatDauHocText(isoToDMY(form.ngayBatDauHoc));
-    }, []); // chạy 1 lần
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-    const setField = (name, value) => {
-        setForm((prev) => ({ ...prev, [name]: value }));
-    };
+    const setField = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
 
     const validate = () => {
         const errs = [];
         if (!form.StudentName?.trim()) errs.push("Vui lòng nhập tên học viên.");
         if (!form.ngayBatDauHoc) errs.push("Vui lòng nhập ngày bắt đầu học (định dạng dd/mm/yyyy).");
-        const n = Number(form.SoBuoiDaHoc);
+        const n = Number(form.SoBuoiHocDaHoc);
         if (Number.isNaN(n) || n < 0) errs.push("Số buổi đã học phải là số không âm.");
         return errs;
     };
@@ -70,22 +73,33 @@ export default function AddStudentPage() {
 
         setSaving(true);
         try {
-            // Gửi đúng keys như BE đang nhận (case-insensitive, nhưng giữ nguyên như cũ cho chắc)
             const payload = {
                 StudentName: form.StudentName?.trim(),
-                ParentName: form.ParentName?.trim(),
-                PhoneNumber: form.PhoneNumber?.trim(),
-                Adress: form.Adress?.trim(),
-                ngayBatDauHoc: form.ngayBatDauHoc, // ISO yyyy-MM-dd
-                SoBuoiDaHoc: Number(form.SoBuoiDaHoc) || 0,
-                status: Number(form.status) === 0 ? 0 : 1,
+                ParentName: form.ParentName?.trim() || null,
+                PhoneNumber: form.PhoneNumber?.trim() || null,
+                Adress: form.Adress?.trim() || null,
+                ngayBatDauHoc: form.ngayBatDauHoc,
+                SoBuoiHocDaHoc: Number(form.SoBuoiHocDaHoc) || 0,
+                SoBuoiHocConLai: Number(form.SoBuoiHocConLai) || 0,
+                Status: Number(form.Status) || 1,
             };
 
-            await createStudent(payload);
-            navigate("/students");
-        } catch (e) {
-            console.error(e);
-            setErrors(["Tạo mới thất bại. Vui lòng thử lại."]);
+            const res = await createStudent(payload);
+            const info = {
+                studentId: res?.studentId ?? res?.StudentId ?? res?.id ?? null,
+                email: res?.email ?? (res?.StudentId ? `student${res.StudentId}@example.com` : null),
+                tempPassword: res?.tempPassword ?? "123456",
+            };
+            if (!info.email && info.studentId != null) info.email = `student${info.studentId}@example.com`;
+
+            setSuccessInfo(info);
+        } catch (err) {
+            let msg = "Không thể tạo học viên. Vui lòng thử lại.";
+            const data = err?.response?.data;
+            if (typeof data === "string") msg = data;
+            else if (data?.message) msg = data.message;
+            else if (err?.message) msg = err.message;
+            setErrors([msg]);
         } finally {
             setSaving(false);
         }
@@ -93,15 +107,12 @@ export default function AddStudentPage() {
 
     return (
         <>
+            {/* Content Header */}
             <section className="content-header">
-                <h1>THÊM HỌC VIÊN</h1>
+                <h1>Học viên <small>Thêm mới</small></h1>
                 <ol className="breadcrumb">
-                    <li>
-                        <Link to="/"><i className="fa fa-dashboard" /> Trang chủ</Link>
-                    </li>
-                    <li>
-                        <Link to="/students">Học viên</Link>
-                    </li>
+                    <li><Link to="/"><i className="fa fa-dashboard" /> Trang chủ</Link></li>
+                    <li><Link to="/students">Học viên</Link></li>
                     <li className="active">Thêm học viên</li>
                 </ol>
             </section>
@@ -128,21 +139,21 @@ export default function AddStudentPage() {
                                 <form onSubmit={onSubmit}>
                                     {/* Tên học viên */}
                                     <div className="form-group">
-                                        <label htmlFor="StudentName">Tên học viên</label>
+                                        <label htmlFor="StudentName">Tên học viên <span className="text-danger">*</span></label>
                                         <input
                                             id="StudentName"
                                             className={`form-control ${!form.StudentName && errors.length ? "is-invalid" : ""}`}
                                             type="text"
                                             value={form.StudentName}
                                             onChange={(e) => setField("StudentName", e.target.value)}
+                                            placeholder="VD: Nguyễn Văn A"
                                             autoFocus
-                                            required
                                         />
                                     </div>
 
-                                    {/* Tên phụ huynh */}
+                                    {/* Phụ huynh */}
                                     <div className="form-group">
-                                        <label htmlFor="ParentName">Tên phụ huynh</label>
+                                        <label htmlFor="ParentName">Phụ huynh</label>
                                         <input
                                             id="ParentName"
                                             className="form-control"
@@ -152,15 +163,16 @@ export default function AddStudentPage() {
                                         />
                                     </div>
 
-                                    {/* Số điện thoại */}
+                                    {/* SĐT */}
                                     <div className="form-group">
                                         <label htmlFor="PhoneNumber">Số điện thoại</label>
                                         <input
                                             id="PhoneNumber"
                                             className="form-control"
-                                            type="tel"
+                                            type="text"
                                             value={form.PhoneNumber}
                                             onChange={(e) => setField("PhoneNumber", e.target.value)}
+                                            placeholder="09xxxxxxxx"
                                         />
                                     </div>
 
@@ -188,7 +200,6 @@ export default function AddStudentPage() {
                                             maxLength={10}
                                             value={ngayBatDauHocText}
                                             onChange={(e) => {
-                                                // chỉ giữ số, tự chèn "/"
                                                 const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
                                                 let out = digits;
                                                 if (digits.length > 4) out = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
@@ -198,35 +209,31 @@ export default function AddStudentPage() {
                                                 const iso = dmyToISO(out);
                                                 setField("ngayBatDauHoc", iso ?? "");
                                             }}
-                                            onBlur={() => {
-                                                const iso = dmyToISO(ngayBatDauHocText);
-                                                if (iso) setNgayBatDauHocText(isoToDMY(iso));
-                                            }}
-                                            required
                                         />
+                                        <p className="help-block">Định dạng: dd/mm/yyyy</p>
                                     </div>
 
                                     {/* Số buổi đã học */}
                                     <div className="form-group">
-                                        <label htmlFor="SoBuoiDaHoc">Số buổi đã học</label>
+                                        <label htmlFor="SoBuoiHocDaHoc">Số buổi đã học</label>
                                         <input
-                                            id="SoBuoiDaHoc"
+                                            id="SoBuoiHocDaHoc"
                                             className="form-control"
                                             type="number"
                                             min={0}
-                                            value={form.SoBuoiDaHoc}
-                                            onChange={(e) => setField("SoBuoiDaHoc", e.target.value)}
+                                            value={form.SoBuoiHocDaHoc}
+                                            onChange={(e) => setField("SoBuoiHocDaHoc", e.target.value)}
                                         />
                                     </div>
 
                                     {/* Trạng thái */}
                                     <div className="form-group">
-                                        <label htmlFor="status">Trạng thái</label>
+                                        <label htmlFor="Status">Trạng thái</label>
                                         <select
-                                            id="status"
+                                            id="Status"
                                             className="form-control"
-                                            value={form.status}
-                                            onChange={(e) => setField("status", Number(e.target.value))}
+                                            value={form.Status}
+                                            onChange={(e) => setField("Status", Number(e.target.value))}
                                         >
                                             <option value={1}>Đang học</option>
                                             <option value={0}>Nghỉ học</option>
@@ -235,11 +242,7 @@ export default function AddStudentPage() {
 
                                     {/* Buttons */}
                                     <div className="form-group" style={{ marginTop: 20 }}>
-                                        <button
-                                            type="submit"
-                                            className="btn btn-primary"
-                                            disabled={saving}
-                                        >
+                                        <button type="submit" className="btn btn-primary" disabled={saving}>
                                             {saving ? <i className="fa fa-spinner fa-spin" /> : <i className="fa fa-save" />}{" "}
                                             Tạo mới
                                         </button>{" "}
@@ -251,6 +254,43 @@ export default function AddStudentPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Modal thông báo tạo tài khoản thành công */}
+            {successInfo && (
+                <div className="modal fade in" style={{ display: "block", background: "rgba(0,0,0,0.5)" }}>
+                    <div className="modal-dialog" role="dialog">
+                        <div className="modal-content" role="document">
+                            <div className="modal-header">
+                                <button type="button" className="close" onClick={() => setSuccessInfo(null)}>
+                                    <span>&times;</span>
+                                </button>
+                                <h4 className="modal-title">
+                                    <i className="fa fa-check-circle text-green" /> Tạo tài khoản thành công
+                                </h4>
+                            </div>
+                            <div className="modal-body" style={{ fontSize: 16 }}>
+                                <p>Đã tạo tài khoản đăng nhập cho học viên{successInfo.studentId ? <> <strong>#{successInfo.studentId}</strong></> : null}.</p>
+                                <p>
+                                    <strong>Tài khoản:</strong>{" "}
+                                    <code style={{ fontSize: 16 }}>{successInfo.email || "(không xác định)"}</code>
+                                </p>
+                                <p>
+                                    <strong>Mật khẩu tạm thời:</strong>{" "}
+                                    <code style={{ fontSize: 16 }}>{successInfo.tempPassword}</code>
+                                </p>
+                                <p className="text-muted" style={{ marginTop: 10 }}>
+                                    Vui lòng hướng dẫn học viên đổi mật khẩu sau khi đăng nhập lần đầu.
+                                </p>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-primary" onClick={() => navigate("/students")}>
+                                    Tiếp tục
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`
         .is-invalid { border: 2px solid #dc3545 !important; background-color: #f8d7da !important; }

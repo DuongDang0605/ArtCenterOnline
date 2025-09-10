@@ -27,6 +27,7 @@ export default function LoginPage() {
             if (!to) {
                 if (data.user?.roles?.includes("Admin")) to = "/";
                 else if (data.user?.roles?.includes("Teacher")) to = "/";
+                else if (data.user?.roles?.includes("Student")) to = "/me/schedule";
                 else to = "/";
             }
             nav(to, { replace: true });

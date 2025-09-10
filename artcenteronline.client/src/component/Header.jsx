@@ -1,10 +1,69 @@
 ﻿import { Link } from "react-router-dom";
 import { useAuth } from "../auth/authCore";
-import { useEffect } from "react";
-
+import { useEffect, useState } from "react";
+import http from "../api/http";
 
 export default function Header() {
     const { user, roles, logout } = useAuth();
+    const [displayName, setDisplayName] = useState(user?.fullName || "Guest");
+
+    const isAdmin = roles?.includes("Admin");
+    const isTeacher = roles?.includes("Teacher");
+    const isStudent = roles?.includes("Student");
+
+    useEffect(() => {
+        let alive = true;
+
+        async function resolveName() {
+            // Admin: lấy từ user
+            if (isAdmin) {
+                if (alive) setDisplayName(user?.fullName || "Admin");
+                return;
+            }
+
+            // Teacher: gọi theo teacherId
+            if (isTeacher) {
+                const teacherId =
+                    user?.teacherId ?? user?.TeacherId ?? user?.teacherID ?? null;
+                if (teacherId) {
+                    try {
+                        const { data } = await http.get(`/Teachers/${teacherId}`);
+                        const tname =
+                            data?.teacherName ?? data?.TeacherName ?? user?.fullName;
+                        if (alive) setDisplayName(tname || "Teacher");
+                        return;
+                    } catch {
+                        if (alive) setDisplayName(user?.fullName || "Teacher");
+                        return;
+                    }
+                }
+                if (alive) setDisplayName(user?.fullName || "Teacher");
+                return;
+            }
+
+            // Student: /Students/me
+            if (isStudent) {
+                try {
+                    const { data } = await http.get("/Students/me");
+                    const sname = data?.studentName ?? data?.StudentName;
+                    if (alive) setDisplayName(sname || user?.fullName || "Student");
+                    return;
+                } catch {
+                    if (alive) setDisplayName(user?.fullName || "Student");
+                    return;
+                }
+            }
+
+            // Fallback
+            if (alive) setDisplayName(user?.fullName || "Guest");
+        }
+
+        resolveName();
+        return () => {
+            alive = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.fullName, user?.teacherId, user?.TeacherId, isAdmin, isTeacher, isStudent]);
 
     const toggleSidebar = (e) => {
         e.preventDefault();
@@ -16,6 +75,7 @@ export default function Header() {
         setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
     };
 
+    // eslint-disable-next-line no-unused-vars
     const toggleControl = (e) => {
         e.preventDefault();
         const el = document.querySelector(".control-sidebar");
@@ -23,15 +83,19 @@ export default function Header() {
     };
 
     useEffect(() => {
-        document.body.classList.add("fixed", "sidebar-mini"); // bật fixed layout
+        document.body.classList.add("fixed", "sidebar-mini");
         return () => document.body.classList.remove("fixed");
     }, []);
 
     return (
         <header className="main-header">
             <Link to="/" className="logo">
-                <span className="logo-mini"><b>A</b>LT</span>
-                <span className="logo-lg"><b>ArtCenter</b>Online</span>
+                <span className="logo-mini">
+                    <b>A</b>LT
+                </span>
+                <span className="logo-lg">
+                    <b>ArtCenter</b>Online
+                </span>
             </Link>
 
             <nav className="navbar navbar-static-top">
@@ -43,16 +107,12 @@ export default function Header() {
                     <ul className="nav navbar-nav">
                         <li className="dropdown user user-menu">
                             <a href="#" className="dropdown-toggle" data-toggle="dropdown">
-                                {/* Avatar nhỏ + tên */}
-                              
-                                <span className="hidden-xs">{user?.fullName || "Guest"}</span>
+                                <span className="hidden-xs">{displayName}</span>
                             </a>
                             <ul className="dropdown-menu">
                                 <li className="user-header">
-                                 
-                                  
                                     <p>
-                                        {user?.fullName || "Guest"} - {roles?.join(", ") || "No Role"}
+                                        {displayName} - {roles?.join(", ") || "No Role"}
                                     </p>
                                 </li>
                                 <li className="user-footer">
@@ -70,11 +130,6 @@ export default function Header() {
                             </ul>
                         </li>
 
-                        <li>
-                            <a href="#" onClick={toggleControl}>
-                                <i className="fa fa-gears" />
-                            </a>
-                        </li>
                     </ul>
                 </div>
             </nav>

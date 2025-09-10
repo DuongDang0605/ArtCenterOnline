@@ -39,7 +39,9 @@ import ReportsDashboardPage from "./Template/Reports/ReportsDashboardPage.jsx";
 // Nếu đã tách monthly calendar
 import MonthlyCalendar from "./component/MonthlyCalendar";
 import AttendanceExportPage from "./Template/Reports/AttendanceExportPage.jsx";
-
+import StudentCalendarPage from "./Template/Student/StudentCalendarPage.jsx";
+import StudentSelfCalendarPage from "./Template/Student/StudentSelfCalendarPage.jsx";
+import StudentProfilePage from "./Template/Student/StudentProfilePage.jsx";
 
 export default function App() {
     return (
@@ -97,6 +99,22 @@ export default function App() {
                             element={
                                 <RequireRole roles={["Admin"]}>
                                     <EditStudentPage />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="me/schedule"
+                            element={
+                                <RequireRole roles={["Student"]}>
+                                    <StudentSelfCalendarPage />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="me/profile"
+                            element={
+                                <RequireRole roles={["Student"]}>
+                                    <StudentProfilePage />
                                 </RequireRole>
                             }
                         />
@@ -182,6 +200,18 @@ export default function App() {
                             }
                         />
                         <Route path="/profile" element={<ProfilePage />} />
+
+                        {/* Student calendar */}
+                        <Route
+                            path="calendar/student"
+                            element={
+                                <RequireRole roles={["Admin", "Teacher"]}>
+                                    <StudentCalendarPage />
+                                </RequireRole>
+                            }
+                        />
+                     
+
 
                         {/* (Tuỳ chọn) 404 trong layout */}
                         <Route path="*" element={<div className="p-3">Không tìm thấy trang</div>} />

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DocumentFormat.OpenXml.Spreadsheet;
+using System;
 namespace ArtCenterOnline.Server.Model
 {
     public class StudentInfo
@@ -13,6 +14,9 @@ namespace ArtCenterOnline.Server.Model
         public int SoBuoiHocDaHoc { get; set; } = 0;
         public int Status { get; set; } = 0;
         public DateTime? StatusChangedAt { get; set; }
+        public int? UserId { get; set; }     // nullable để không vỡ dữ liệu cũ
+        public User? User { get; set; }
+
 
         public ICollection<ClassStudent> ClassStudents { get; set; } = new List<ClassStudent>();
 

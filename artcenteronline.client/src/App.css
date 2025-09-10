@@ -230,7 +230,7 @@ table.dataTable {
 .main-footer,
 .right-side {
     margin-left: 0;
-    padding-top: 0;
+
 }
 
 /* 1) Bật cố định khi body có class .fixed */
@@ -257,7 +257,7 @@ body.fixed .content-wrapper,
 body.fixed .main-footer,
 body.fixed .right-side {
     margin-left: 230px; /* chừa chỗ cho sidebar */
-    padding-top: 50px; /* chừa chỗ cho header */
+
     transition: margin-left .3s ease;
 }
 
@@ -302,7 +302,7 @@ body.fixed.sidebar-mini.sidebar-collapse .right-side {
     }
 
     /* Mặc định AdminLTE đặt .info là absolute -> đổi về flow thường để cân đối chiều cao */
-    .main-sidebar .user-panel .info {
+    .main-sidebar .user-panel .info  {
         position: static !important;
         padding: 0;
         margin: 0;
@@ -386,3 +386,12 @@ body.fixed.sidebar-mini.sidebar-collapse .right-side {
         margin: 0 !important;
         line-height: 1.2;
     }
+@media (min-width: 768px) {
+    .form-horizontal .control-label {
+        padding-top: 7px;
+        margin-bottom: 0;
+        text-align: left !important;
+        padding-left: 40px;
+    }
+}
+

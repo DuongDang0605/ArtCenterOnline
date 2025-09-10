@@ -222,6 +222,23 @@ namespace ArtCenterOnline.Server.Data
                 .HasOne(x => x.User).WithMany(u => u.UserRoles).HasForeignKey(x => x.UserId);
             modelBuilder.Entity<UserRole>()
                 .HasOne(x => x.Role).WithMany(r => r.UserRoles).HasForeignKey(x => x.RoleId);
+            // Data/AppDbContext.cs - trong OnModelCreating
+            modelBuilder.Entity<StudentInfo>(entity =>
+            {
+                entity.HasKey(e => e.StudentId);
+                entity.Property(e => e.Status).HasDefaultValue(1);
+                entity.Property<DateTime?>("StatusChangedAt");
+
+                entity.HasOne(s => s.User)
+                      .WithOne()                                  // KHÔNG dùng WithMany
+                      .HasForeignKey<StudentInfo>(s => s.UserId)
+                      .OnDelete(DeleteBehavior.Restrict);         // tránh xoá dây chuyền
+
+                entity.HasIndex(s => s.UserId).IsUnique()
+                      .HasFilter("[UserId] IS NOT NULL");         // 1–1 có filter NULL
+            });
+
+
 
         }
     }

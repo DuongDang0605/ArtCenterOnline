@@ -129,3 +129,21 @@ export async function syncMonth(classId, { year, month } = {}) {
     const { data } = await http.post(url);
     return data; // { created, updated, deleted, skippedTeacherConflicts }
 }
+// Lấy lịch theo HỌC VIÊN
+export async function listSessionsByStudent(filters = {}) {
+    const qs = new URLSearchParams();
+    if (filters.studentId == null) throw new Error("Thiếu studentId");
+    qs.set("studentId", String(filters.studentId));
+    if (filters.from) qs.set("from", filters.from);
+    if (filters.to) qs.set("to", filters.to);
+    if (filters.status != null) qs.set("status", String(filters.status));
+    if (filters.forCalendar) qs.set("forCalendar", "true"); // BE bỏ qua cũng không sao
+
+    const url = `/ClassSessions/by-student?${qs.toString()}`;
+    try {
+        const { data } = await http.get(url);
+        return Array.isArray(data) ? data : (data?.items ?? data ?? []);
+    } catch (err) {
+        throw enrichError(err);
+    }
+}

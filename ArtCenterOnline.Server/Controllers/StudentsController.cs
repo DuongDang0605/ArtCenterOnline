@@ -1,9 +1,12 @@
 ﻿using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
-using ArtCenterOnline.Server.Services; // <-- thêm
+using ArtCenterOnline.Server.Model.DTO;
+using ArtCenterOnline.Server.Services; // service vòng đời HS
+using ArtCenterOnline.Server.Controllers; // để dùng AuthController.HashPassword
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 [ApiController]
 [Route("api/[controller]")]
@@ -11,12 +14,25 @@ using Microsoft.EntityFrameworkCore;
 public class StudentsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly IStudentLifecycleService _lifecycle; // <-- thêm
+    private readonly IStudentLifecycleService _lifecycle;
 
-    public StudentsController(AppDbContext db, IStudentLifecycleService lifecycle) // <-- inject
+    public StudentsController(AppDbContext db, IStudentLifecycleService lifecycle)
     {
         _db = db;
         _lifecycle = lifecycle;
+    }
+
+    // ===== Helpers =====
+    private async Task<Role> EnsureRoleAsync(string roleName, CancellationToken ct = default)
+    {
+        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Name == roleName, ct);
+        if (role == null)
+        {
+            role = new Role { Name = roleName };
+            _db.Roles.Add(role);
+            await _db.SaveChangesAsync(ct);
+        }
+        return role;
     }
 
     [HttpGet]
@@ -51,12 +67,73 @@ public class StudentsController : ControllerBase
 
     [HttpPost]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<ActionResult<StudentInfo>> Create(StudentInfo input)
+    public async Task<ActionResult<object>> Create([FromBody] StudentInfo input, CancellationToken ct)
     {
-        _db.Students.Add(input);
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(Get), new { id = input.StudentId }, input);
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            // 1) Tạo USER trước với email tạm để không dính ràng buộc FK NOT NULL
+            var tempEmail = $"studenttmp-{Guid.NewGuid():N}@example.com";
+            var user = new User
+            {
+                Email = tempEmail,
+                // Dùng BCrypt như các chỗ khác trong dự án
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
+                FullName = (input.StudentName ?? string.Empty).Trim(),
+                IsActive = (input.Status == 1)
+            };
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync(ct); // có userId
+
+            // 2) Gán ROLE Student
+            var studentRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Student", ct);
+            if (studentRole == null)
+            {
+                studentRole = new Role { Name = "Student" };
+                _db.Roles.Add(studentRole);
+                await _db.SaveChangesAsync(ct);
+            }
+            _db.UserRoles.Add(new UserRole { UserId = user.UserId, RoleId = studentRole.RoleId });
+
+            // 3) Tạo STUDENT liên kết với user vừa tạo
+            input.UserId = user.UserId;
+            _db.Students.Add(input);
+            await _db.SaveChangesAsync(ct); // có StudentId
+
+            // 4) Cập nhật email chuẩn sau khi biết StudentId
+            var finalEmail = $"student{input.StudentId}@example.com";
+            var taken = await _db.Users.AnyAsync(u => u.Email == finalEmail && u.UserId != user.UserId, ct);
+            if (taken)
+            {
+                return Conflict(new { message = $"Email {finalEmail} đã tồn tại, không thể tạo tài khoản cho học sinh #{input.StudentId}." });
+            }
+            user.Email = finalEmail;
+            await _db.SaveChangesAsync(ct);
+
+            await tx.CommitAsync(ct);
+
+            // 5) TRẢ DTO GỌN -> tránh vòng tham chiếu
+            return Ok(new
+            {
+                studentId = input.StudentId,
+                email = finalEmail,
+                tempPassword = "123456"
+            });
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync(ct);
+            return StatusCode(500, new
+            {
+                message = "Tạo học viên + tài khoản đăng nhập thất bại.",
+                detail = ex.Message
+            });
+        }
     }
+
+
 
     [HttpPut("{id:int}")]
     [Authorize(Policy = "AdminOnly")]
@@ -67,7 +144,6 @@ public class StudentsController : ControllerBase
         var existing = await _db.Students.FindAsync(id);
         if (existing == null) return NotFound();
 
-        // Cập nhật các field cho phép
         existing.StudentName = input.StudentName;
         existing.ParentName = input.ParentName;
         existing.PhoneNumber = input.PhoneNumber;
@@ -76,18 +152,15 @@ public class StudentsController : ControllerBase
         existing.SoBuoiHocConLai = input.SoBuoiHocConLai;
         existing.SoBuoiHocDaHoc = input.SoBuoiHocDaHoc;
 
-        // Nếu Status thay đổi
         if (existing.Status != input.Status)
         {
             if (input.Status == 0)
             {
-                // Gọi service để tắt toàn hệ thống
                 var affected = await _lifecycle.DeactivateStudentAsync(id);
                 return Ok(new { message = $"Đã chuyển học sinh sang nghỉ học, tắt {affected} liên kết lớp." });
             }
             else
             {
-                // Cho phép bật lại trạng thái học sinh (không tự động bật lại các liên kết lớp)
                 existing.Status = input.Status;
                 existing.StatusChangedAt = DateTime.UtcNow;
             }
@@ -106,5 +179,70 @@ public class StudentsController : ControllerBase
         _db.Students.Remove(item);
         await _db.SaveChangesAsync();
         return NoContent();
+    }
+
+    [HttpGet("me")]
+    [Authorize(Roles = "Student")]
+    public async Task<IActionResult> Me(CancellationToken ct)
+    {
+        var uidStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(uidStr, out var myUserId)) return Unauthorized();
+
+        var me = await _db.Students.AsNoTracking()
+            .Where(s => s.UserId == myUserId)
+            .Select(s => new {
+                s.StudentId,
+                s.StudentName,
+                s.ParentName,
+                s.PhoneNumber,
+                s.Adress,
+                s.ngayBatDauHoc,
+                s.SoBuoiHocDaHoc,
+                s.SoBuoiHocConLai,
+                s.Status,
+                s.StatusChangedAt
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (me == null) return NotFound(new { message = "Không tìm thấy hồ sơ học sinh gắn với tài khoản này." });
+        return Ok(me);
+    }
+
+    [HttpPut("me")]
+    [Authorize(Roles = "Student")]
+    public async Task<IActionResult> UpdateMe([FromBody] StudentSelfUpdateDto input, CancellationToken ct)
+    {
+        var uidStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(uidStr, out var myUserId)) return Unauthorized();
+
+        var st = await _db.Students.FirstOrDefaultAsync(s => s.UserId == myUserId, ct);
+        if (st == null) return NotFound(new { message = "Không tìm thấy hồ sơ học sinh gắn với tài khoản này." });
+
+        static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+        if (input.StudentName != null) st.StudentName = Clean(input.StudentName)!;
+        if (input.ParentName != null) st.ParentName = Clean(input.ParentName)!;
+        if (input.PhoneNumber != null) st.PhoneNumber = Clean(input.PhoneNumber)!;
+        if (input.Adress != null) st.Adress = Clean(input.Adress)!;
+        
+        await _db.SaveChangesAsync(ct);
+
+        var me = await _db.Students.AsNoTracking()
+            .Where(s => s.StudentId == st.StudentId)
+            .Select(s => new {
+                s.StudentId,
+                s.StudentName,
+                s.ParentName,
+                s.PhoneNumber,
+                s.Adress,
+                s.ngayBatDauHoc,
+                s.SoBuoiHocDaHoc,
+                s.SoBuoiHocConLai,
+                s.Status,
+                s.StatusChangedAt
+            })
+            .FirstAsync(ct);
+
+        return Ok(me);
     }
 }

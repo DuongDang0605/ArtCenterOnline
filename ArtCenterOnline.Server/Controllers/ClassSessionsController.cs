@@ -600,5 +600,66 @@ namespace ArtCenterOnline.Server.Controllers
 
             return result;
         }
+
+        // using ArtCenterOnline.Server.Services; // để dùng ClaimsExt
+        // using Microsoft.EntityFrameworkCore;
+
+        [HttpGet("by-student")]
+        [Authorize(Roles = "Admin,Teacher,Student")]
+        public async Task<IActionResult> ListByStudent(
+            [FromQuery] int studentId,
+            [FromQuery] string? from,
+            [FromQuery] string? to,
+            CancellationToken ct)
+        {
+            if (studentId <= 0) return BadRequest(new { message = "Thiếu studentId" });
+
+            // Student chỉ được xem lịch của CHÍNH MÌNH
+            if (User.IsInRole("Student"))
+            {
+                var myUserId = User.GetUserId(); // ClaimsExt.GetUserId()
+                var myStudentId = await _db.Students
+                    .Where(s => s.UserId == myUserId)
+                    .Select(s => s.StudentId)
+                    .FirstOrDefaultAsync(ct);
+
+                if (myStudentId == 0 || myStudentId != studentId)
+                    return Forbid();
+            }
+
+            var classIds = await _db.ClassStudents
+                .Where(cs => cs.StudentId == studentId && cs.IsActive)
+                .Select(cs => cs.ClassID)
+                .ToListAsync(ct);
+
+            var q = _db.ClassSessions
+                .AsNoTracking()
+                .Include(s => s.Class)
+                .Include(s => s.Teacher)
+                .Where(s => classIds.Contains(s.ClassID));
+
+            if (TryParseDateOnly(from, out var fromDo)) q = q.Where(s => s.SessionDate >= fromDo);
+            if (TryParseDateOnly(to, out var toDo)) q = q.Where(s => s.SessionDate <= toDo);
+
+            var rows = await q
+                .OrderBy(s => s.SessionDate).ThenBy(s => s.StartTime)
+                .Select(s => new {
+                    sessionId = s.SessionId,
+                    classId = s.ClassID,
+                    className = s.Class != null ? s.Class.ClassName : $"#{s.ClassID}",
+                    sessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
+                    startTime = s.StartTime.ToString(@"hh\:mm"),
+                    endTime = s.EndTime.ToString(@"hh\:mm"),
+                    status = (int)s.Status,
+                    teacherId = s.TeacherId,
+                    teacherName = s.Teacher != null ? s.Teacher.TeacherName : null,
+                    teacherPhone = s.Teacher != null ? s.Teacher.PhoneNumber : null // mở rộng theo nhu cầu
+                })
+                .ToListAsync(ct);
+
+            return Ok(rows);
+        }
+
+
     }
 }

@@ -47,3 +47,12 @@ export async function getActiveStudentsNotInClass(classId) {
   const { data } = await http.get(`/Students/not-in-class/${classId}`);
   return data;
 }
+export async function getMyProfile() {
+    const { data } = await http.get("/Students/me");
+    return data;
+}
+export async function updateMyProfile(payload) {
+    // payload: { studentName?, parentName?, phoneNumber?, adress? }
+    const { data } = await http.put("/Students/me", payload);
+    return data; // trả về bản hồ sơ sau cập nhật
+}
