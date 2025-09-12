@@ -12,7 +12,7 @@ namespace ArtCenterOnline.Server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Policy = "AdminOnly")] // 👈 chỉ Admin mới dùng được các API quản trị user
+
     public class UsersController : ControllerBase
     {
         private readonly AppDbContext _db;
@@ -24,7 +24,7 @@ namespace ArtCenterOnline.Server.Controllers
             public int UserId { get; set; }
             public string UserEmail { get; set; } = string.Empty; // map -> User.Email
             public string Password { get; set; } = string.Empty;  // map -> User.PasswordHash (hash) | GET trả rỗng
-            public int Status { get; set; } = 1;                  // map -> User.IsActive (1/0)
+            public int? Status { get; set; } = 1;                  // map -> User.IsActive (1/0)
             public string? role { get; set; } = "Teacher";        // map <- UserRoles (tên role đầu tiên)
         }
 
@@ -138,43 +138,41 @@ namespace ArtCenterOnline.Server.Controllers
         [Authorize(Roles = "Admin,Teacher,Student")]
         public async Task<IActionResult> Update(int id, [FromBody] LegacyUserDto input, CancellationToken ct)
         {
-            if (id != input.UserId) return BadRequest("Id không khớp.");
+            if (id != input.UserId) return BadRequest("UserId không khớp.");
 
-            var current = await _db.Users.FirstOrDefaultAsync(u => u.UserId == id, ct);
-            if (current == null) return NotFound();
-
+            var uidStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            _ = int.TryParse(uidStr, out var myUserId);
             var isAdmin = User.IsInRole("Admin");
+            if (!isAdmin && myUserId != id) return Forbid(); // không phải admin thì chỉ sửa chính mình
 
-            // nếu là Teacher: chỉ được sửa chính mình
-            var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            int.TryParse(userIdStr, out var myUserId);
-            if (!isAdmin && myUserId != id) return Forbid();
+            var user = await _db.Users.FindAsync(new object[] { id }, ct);
+            if (user == null) return NotFound();
 
-            // Cho Teacher đổi email/mật khẩu của chính mình
+            // Đổi email (kiểm tra trùng)
             var newEmail = (input.UserEmail ?? "").Trim();
-            if (!string.IsNullOrEmpty(newEmail))
+            if (!string.IsNullOrEmpty(newEmail) &&
+                !newEmail.Equals(user.Email, StringComparison.OrdinalIgnoreCase))
             {
-                var emailTaken = await _db.Users.AnyAsync(u => u.Email == newEmail && u.UserId != id, ct);
-                if (emailTaken) return Conflict($"Email {newEmail} đã được dùng.");
-                current.Email = newEmail;
+                var taken = await _db.Users.AnyAsync(u => u.Email == newEmail && u.UserId != id, ct);
+                if (taken) return Conflict(new { message = "Email đã tồn tại." });
+                user.Email = newEmail;
             }
 
-            if (!string.IsNullOrEmpty(input.Password))
+            // Đổi mật khẩu (nếu nhập)
+            if (!string.IsNullOrWhiteSpace(input.Password))
             {
-                if (input.Password.Length < 6) return BadRequest("Mật khẩu >=6 ký tự");
-                current.PasswordHash = AuthController.HashPassword(input.Password);
+                user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(input.Password);
             }
 
-            if (isAdmin)
-            {
-                current.IsActive = input.Status == 1;
-                // Admin có thể đổi thêm các field khác
-            }
+            // Optional: Admin có thể đổi trạng thái
+
+            if (isAdmin && input.Status.HasValue)
+                user.IsActive = input.Status.Value == 1;
 
             await _db.SaveChangesAsync(ct);
             return NoContent();
         }
-
+      
         // ===== DELETE: api/users/5 =====
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)

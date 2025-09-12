@@ -19,11 +19,17 @@ export async function createUser(payload) {
     return data;
 }
 
-// UPDATE user — AdminOnly
-export async function updateUser(id, payload) {
-    await http.put(`/Users/${id}`, payload);
+// UPDATE user — self or admin
+export async function updateUser(id, payload = {}) {
+    const dto = {
+        UserId: Number(id),
+        UserEmail: payload.UserEmail ?? payload.Email ?? payload.email ?? "",
+        Password: payload.Password ?? payload.password ?? "", // để trống nếu không đổi
+    };
+    await http.put(`/Users/${id}`, dto);
     return true;
 }
+
 
 // DELETE user — AdminOnly
 export async function deleteUser(id) {
