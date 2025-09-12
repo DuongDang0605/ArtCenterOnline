@@ -86,10 +86,11 @@ export default function Header() {
         document.body.classList.add("fixed", "sidebar-mini");
         return () => document.body.classList.remove("fixed");
     }, []);
+    const brandTo = (isAdmin || isTeacher) ? "/" : (isStudent ? "/me/schedule" : "/");
 
     return (
         <header className="main-header">
-            <Link to="/" className="logo">
+            <Link to={brandTo} className="logo">
                 <span className="logo-mini">
                     <b>A</b>LT
                 </span>

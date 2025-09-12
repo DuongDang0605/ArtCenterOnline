@@ -11,6 +11,7 @@ import RequireRole from "./auth/RequireRole";
 
 // Auth UI
 import LoginPage from "./Template/Auth/LoginPage";
+import ForgotPasswordPage from "./Template/Auth/ForgotPasswordPage.jsx";
 
 // Pages
 import ClassesPage from "./Template/Class/ClassesPage.jsx";
@@ -49,6 +50,7 @@ export default function App() {
             <Routes>
                 {/* Public routes */}
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
                 {/* Protected app */}
                 <Route element={<ProtectedRoute />}>

@@ -37,3 +37,9 @@ export async function changePassword(id, payload) {
     await http.post(`/Users/${id}/change-password`, payload);
     return true;
 }
+// Student tự đổi mật khẩu (qua StudentsController)
+export async function changePasswordMe(payload) {
+    // payload: { currentPassword, newPassword }
+    await http.post("/Students/me/change-password", payload);
+    return true;
+}

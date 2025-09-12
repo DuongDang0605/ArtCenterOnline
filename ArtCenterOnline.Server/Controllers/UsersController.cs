@@ -135,7 +135,7 @@ namespace ArtCenterOnline.Server.Controllers
 
         // ===== PUT: api/users/5 =====
         [HttpPut("{id:int}")]
-        [Authorize(Roles = "Admin,Teacher")]
+        [Authorize(Roles = "Admin,Teacher,Student")]
         public async Task<IActionResult> Update(int id, [FromBody] LegacyUserDto input, CancellationToken ct)
         {
             if (id != input.UserId) return BadRequest("Id không khớp.");

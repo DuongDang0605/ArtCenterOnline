@@ -1,9 +1,9 @@
 ﻿// src/Template/Auth/LoginPage.jsx
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { login } from "../../api/auth";
 import { useAuth } from "../../auth/authCore";
-import "./login.adminlte2.css"; // <-- THÊM DÒNG NÀY
+import "./login.adminlte2.css";
 
 export default function LoginPage() {
     const nav = useNavigate();
@@ -14,6 +14,16 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
+
+    // FLASH (success/error) từ trang khác điều hướng về
+    // eslint-disable-next-line no-unused-vars
+    const [flash, setFlash] = useState(loc.state?.alert || null);
+    useEffect(() => {
+        if (loc.state?.alert) {
+            // xóa state trên history để tránh hiển thị lại khi back/forward
+            nav(loc.pathname, { replace: true, state: {} });
+        }
+    }, []); // chỉ chạy 1 lần
 
     const onSubmit = async (e) => {
         e.preventDefault();
@@ -48,9 +58,7 @@ export default function LoginPage() {
             <div className="login-box aco-login-box">
                 <div className="login-logo aco-login-logo">
                     <a href="#" onClick={(e) => e.preventDefault()}>
-                        <span className="aco-brand-icon">
-                            <i className="fa fa-paint-brush" />
-                        </span>
+                        <span className="aco-brand-icon"><i className="fa fa-paint-brush" /></span>
                         <span className="aco-brand-text"><b>ArtCenter</b>Online</span>
                     </a>
                 </div>
@@ -58,6 +66,15 @@ export default function LoginPage() {
                 <div className="login-box-body aco-card">
                     <p className="login-box-msg aco-subtitle">Đăng nhập để bắt đầu phiên làm việc</p>
 
+                    {/* FLASH success/error từ trang khác */}
+                    {flash?.text && (
+                        <div className={`alert alert-${flash.type || "info"} aco-alert`} role="alert">
+                            <i className={`fa ${flash.type === "success" ? "fa-check-circle" : "fa-exclamation-triangle"} aco-alert-icon`} />
+                            {flash.text}
+                        </div>
+                    )}
+
+                    {/* Lỗi khi đăng nhập */}
                     {err && (
                         <div className="alert alert-danger aco-alert" role="alert">
                             <i className="fa fa-exclamation-triangle aco-alert-icon" />
@@ -117,6 +134,13 @@ export default function LoginPage() {
                                 </button>
                             </div>
                         </div>
+
+                        {/* Liên kết phụ (đồng bộ style) */}
+                        <p className="aco-links">
+                            <a className="aco-link" href="/forgot-password">
+                                <i className="fa fa-question-circle aco-btn-icon" /> Quên mật khẩu?
+                            </a>
+                        </p>
                     </form>
 
                     <p className="aco-footnote">© {new Date().getFullYear()} ArtCenterOnline</p>

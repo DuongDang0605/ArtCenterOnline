@@ -22,6 +22,7 @@ namespace ArtCenterOnline.Server.Data
 
         public DbSet<Attendance> Attendances => Set<Attendance>();
         public DbSet<TeacherMonthlyStat> TeacherMonthlyStats => Set<TeacherMonthlyStat>();
+        public DbSet<PasswordResetOtp> PasswordResetOtps { get; set; } = default!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -237,6 +238,55 @@ namespace ArtCenterOnline.Server.Data
                 entity.HasIndex(s => s.UserId).IsUnique()
                       .HasFilter("[UserId] IS NOT NULL");         // 1–1 có filter NULL
             });
+            modelBuilder.Entity<PasswordResetOtp>(entity =>
+            {
+                entity.ToTable("PasswordResetOtp");
+                entity.HasKey(e => e.OtpId);
+
+                entity.Property(e => e.CodeHash)
+                      .HasMaxLength(120)
+                      .IsRequired();
+
+                entity.Property(e => e.Purpose)
+                      .HasMaxLength(20)
+                      .HasDefaultValue("reset")
+                      .IsRequired();
+
+                entity.Property(e => e.ExpiresAtUtc)
+                      .IsRequired();
+
+                entity.Property(e => e.Attempts)
+                      .HasDefaultValue(0);
+
+                entity.Property(e => e.SendCount)
+                      .HasDefaultValue(1);
+
+                entity.Property(e => e.LastSentAtUtc)
+                      .IsRequired();
+
+                entity.Property(e => e.ClientIp)
+                      .HasMaxLength(45);
+
+                entity.Property(e => e.UserAgent)
+                      .HasMaxLength(200);
+
+                // FK -> Users (UserId)
+                entity.HasOne(e => e.User)
+                      .WithMany() // nếu User không có ICollection<PasswordResetOtp>
+                      .HasForeignKey(e => e.UserId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Tối ưu truy vấn
+                entity.HasIndex(e => e.LastSentAtUtc);
+                entity.HasIndex(e => new { e.UserId, e.Purpose });
+
+                // Đảm bảo mỗi user chỉ có 1 OTP "chưa dùng" cho mỗi purpose
+                // (Unique filtered index – SQL Server)
+                entity.HasIndex(e => new { e.UserId, e.Purpose })
+                      .IsUnique()
+                      .HasFilter("[ConsumedAtUtc] IS NULL");
+            });
+
 
 
 
