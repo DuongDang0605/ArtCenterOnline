@@ -1,4 +1,4 @@
-﻿ // Services/SessionAccountingService.cs
+﻿// Services/SessionAccountingService.cs
 using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
 using Microsoft.EntityFrameworkCore;
@@ -52,7 +52,7 @@ namespace ArtCenterOnline.Server.Services
                     var st = await _db.Students.FirstOrDefaultAsync(x => x.StudentId == a.StudentId);
                     if (st == null) continue;
 
-                    st.SoBuoiHocDaHoc = (st.SoBuoiHocDaHoc <= 0) ? 1 : st.SoBuoiHocDaHoc + 1;
+                    st.SoBuoiHocDaHoc = st.SoBuoiHocDaHoc <= 0 ? 1 : st.SoBuoiHocDaHoc + 1;
 
                     var csRow = await _db.ClassStudents.FirstOrDefaultAsync(cs =>
                         cs.ClassID == s.ClassID && cs.StudentId == a.StudentId);
@@ -76,7 +76,7 @@ namespace ArtCenterOnline.Server.Services
             await RecomputeTeacherMonthAsync(s.SessionDate.Year, s.SessionDate.Month);
 
             await tx.CommitAsync();
-            return (true, teacherOnly ? "Đã hạch toán lại giáo viên (chỉ GV)." : (s.AccountingApplied ? "Đã hạch toán." : "Đã hạch toán."));
+            return (true, teacherOnly ? "Đã hạch toán lại giáo viên (chỉ GV)." : s.AccountingApplied ? "Đã hạch toán." : "Đã hạch toán.");
         }
 
         /// <summary>

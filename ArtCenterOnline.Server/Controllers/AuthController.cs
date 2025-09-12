@@ -6,6 +6,9 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using ArtCenterOnline.Server.Model.DTO.Auth;
+
 
 namespace ArtCenterOnline.Server.Controllers
 {
@@ -15,9 +18,14 @@ namespace ArtCenterOnline.Server.Controllers
     {
         private readonly AppDbContext _db;
         private readonly IJwtTokenService _jwt;
-
-        public AuthController(AppDbContext db, IJwtTokenService jwt)
+        private readonly ILogger<AuthController> _logger;
+        private readonly IOtpService _otpService;
+        private readonly IResetTokenStore _resetTokenStore;
+        public AuthController(IResetTokenStore resetTokenStore, ILogger<AuthController> logger, IOtpService otpService, AppDbContext db, IJwtTokenService jwt)
         {
+            _logger = logger;
+            _resetTokenStore = resetTokenStore;
+            _otpService = otpService;
             _db = db;
             _jwt = jwt;
         }
@@ -90,6 +98,80 @@ namespace ArtCenterOnline.Server.Controllers
                 }
             });
         }
+        [HttpPost("forgot-password")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordReq req)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var ua = Request.Headers["User-Agent"].ToString();
+
+            await _otpService.CreateAndSendOtpAsync(req.Email.Trim(), ip, ua);
+
+            // Luôn trả message chung để không lộ email
+            return Ok(new { message = "Nếu email tồn tại, chúng tôi đã gửi mã OTP." });
+        }
+
+
+        // ======= Verify OTP (STUB) =======
+        [HttpPost("verify-otp")]
+        [AllowAnonymous]
+        public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpReq req)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var vr = await _otpService.VerifyOtpAsync(req.Email, req.Code);
+
+            if (!vr.Success)
+            {
+                // Thông báo chung, kèm errorCode để FE xử lý nếu muốn
+                return BadRequest(new
+                {
+                    message = "Mã OTP không hợp lệ hoặc đã hết hạn.",
+                    error = vr.ErrorCode
+                });
+            }
+
+            return Ok(new { resetToken = vr.ResetToken });
+        }
+
+
+        // ======= Reset password (STUB) =======
+        [HttpPost("reset-password")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordReq req)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            // Lấy & xóa token (1 lần dùng)
+            if (!_resetTokenStore.TryTake(req.ResetToken, out var data))
+                return BadRequest(new { message = "Mã đặt lại không hợp lệ hoặc đã hết hạn." });
+
+            // Lấy user & OTP record
+            var user = await _db.Users.SingleOrDefaultAsync(u => u.UserId == data.UserId);
+            var otp = await _db.PasswordResetOtps.SingleOrDefaultAsync(o => o.OtpId == data.OtpId);
+
+            if (user == null || otp == null || otp.ConsumedAtUtc != null)
+                return BadRequest(new { message = "Mã đặt lại không hợp lệ hoặc đã hết hạn." });
+
+            // Hash & cập nhật mật khẩu
+            var newHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword, workFactor: 11);
+            user.PasswordHash = newHash;
+
+            // Consume OTP
+            otp.ConsumedAtUtc = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+
+            _logger.LogInformation("Password reset OK for userId={UserId}, otpId={OtpId}", user.UserId, otp.OtpId);
+            return Ok(new { message = "Đổi mật khẩu thành công. Vui lòng đăng nhập lại." });
+        }
+
 
     }
+
 }

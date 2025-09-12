@@ -245,4 +245,36 @@ public class StudentsController : ControllerBase
 
         return Ok(me);
     }
+    // ───── Student tự đổi mật khẩu ────────────────────────────────────────────────
+    public sealed class ChangePasswordReq
+    {
+        public string CurrentPassword { get; set; } = string.Empty;
+        public string NewPassword { get; set; } = string.Empty;
+    }
+
+    [HttpPost("me/change-password")]
+    [Authorize(Roles = "Student")]
+    public async Task<IActionResult> ChangeMyPassword([FromBody] ChangePasswordReq req, CancellationToken ct)
+    {
+        var uidStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(uidStr, out var myUserId)) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(req.CurrentPassword))
+            return BadRequest(new { message = "Vui lòng nhập mật khẩu hiện tại." });
+
+        if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 6)
+            return BadRequest(new { message = "Mật khẩu mới phải có ít nhất 6 ký tự." });
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.UserId == myUserId, ct);
+        if (user == null) return NotFound(new { message = "Không tìm thấy tài khoản." });
+
+        if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
+            return StatusCode(403, new { message = "Mật khẩu hiện tại không đúng." });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new { message = "Đổi mật khẩu thành công." });
+    }
+
 }
