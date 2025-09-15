@@ -1,6 +1,8 @@
 ﻿// Controllers/ReportsController.cs
 using ArtCenterOnline.Server.Data;
+using ArtCenterOnline.Server.Model;
 using ArtCenterOnline.Server.Model.DTO.Reports;
+using ArtCenterOnline.Server.Services;
 using ArtCenterOnline.Server.Services.Reports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,7 +12,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using ArtCenterOnline.Server.Model;
 
 namespace ArtCenterOnline.Server.Controllers
 {
@@ -135,6 +136,140 @@ namespace ArtCenterOnline.Server.Controllers
         {
             var conn = db.Database.GetDbConnection();
             return Ok($"{conn.DataSource} | {conn.Database}");
+        }
+
+        [HttpGet("logins/daily")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetLoginDaily(
+    [FromQuery] string? from,
+    [FromQuery] string? to,
+    [FromServices] ILoginReportService svc)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var fromD = ParseDateOnly(from) ?? today.AddDays(-29);
+            var toD = ParseDateOnly(to) ?? today;
+
+            var data = await svc.GetDailyAsync(fromD, toD);
+            return Ok(data);
+
+            static DateOnly? ParseDateOnly(string? s)
+                => DateOnly.TryParseExact(s ?? "", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+        }
+
+        [HttpGet("logins/monthly")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetLoginMonthly(
+            [FromQuery] string? from, // yyyy-MM
+            [FromQuery] string? to,   // yyyy-MM
+            [FromServices] ILoginReportService svc)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+
+            DateOnly fromYM;
+            DateOnly toYM;
+
+            if (!TryParseYearMonth(from, out var fy, out var fm))
+            {
+                var t = today.AddMonths(-5);
+                fromYM = new DateOnly(t.Year, t.Month, 1);
+            }
+            else
+            {
+                fromYM = new DateOnly(fy, fm, 1);
+            }
+
+            if (!TryParseYearMonth(to, out var ty, out var tm))
+            {
+                toYM = new DateOnly(today.Year, today.Month, 1);
+            }
+            else
+            {
+                toYM = new DateOnly(ty, tm, 1);
+            }
+
+            var data = await svc.GetMonthlyAsync(fromYM.Year, fromYM.Month, toYM.Year, toYM.Month);
+            return Ok(data);
+
+            static DateOnly? ParseYM(string? s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return null;
+                if (DateTime.TryParseExact(s, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                    return new DateOnly(dt.Year, dt.Month, 1);
+                return null;
+            }
+        }
+        static bool TryParseYearMonth(string? s, out int year, out int month)
+        {
+            year = 0; month = 0;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            if (DateTime.TryParseExact(s, "yyyy-MM", System.Globalization.CultureInfo.InvariantCulture,
+                                       System.Globalization.DateTimeStyles.None, out var dt))
+            {
+                year = dt.Year; month = dt.Month;
+                return true;
+            }
+            return false;
+        }
+
+
+        [HttpGet("logins/by-user")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetLoginByUser(
+            [FromQuery] string? from,
+            [FromQuery] string? to,
+            [FromQuery] string? role,       // Teacher | Student | (null = all)
+            [FromQuery] string? keyword,    // tìm theo email (contains)
+            [FromServices] ILoginReportService svc)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var fromD = ParseDateOnly(from) ?? today.AddDays(-29);
+            var toD = ParseDateOnly(to) ?? today;
+
+            var data = await svc.GetByUserAsync(fromD, toD, role, keyword);
+            return Ok(data);
+
+            static DateOnly? ParseDateOnly(string? s)
+                => DateOnly.TryParseExact(s ?? "", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+        }
+
+        [HttpGet("logins/events")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetLoginEvents(
+    [FromQuery] string? from,   // yyyy-MM-dd
+    [FromQuery] string? to,     // yyyy-MM-dd
+    [FromServices] AppDbContext db)
+        {
+            // mặc định: tháng hiện tại (tính đến hôm nay)
+            var todayLocal = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+            var fromD = ParseDateOnly(from) ?? new DateOnly(todayLocal.Year, todayLocal.Month, 1);
+            var toD = ParseDateOnly(to) ?? todayLocal;
+
+            // join Users để lấy FullName
+            var tz = TimeSpan.FromHours(7);
+            var query =
+                from l in db.AuthLoginLogs
+                join u in db.Users on l.UserId equals u.UserId into gj
+                from u in gj.DefaultIfEmpty()
+                where l.DateLocal >= fromD && l.DateLocal <= toD
+                orderby l.OccurredAtUtc descending
+                select new
+                {
+                    l.UserId,
+                    fullName = u != null ? (u.FullName ?? "") : "",
+                    l.Email,
+                    l.Role,
+                    l.Ip,
+                    occurredAtUtc = l.OccurredAtUtc,
+                    occurredAtLocal = l.OccurredAtUtc + tz,
+                    dateLocal = l.DateLocal
+                };
+
+            // giới hạn để tránh trả quá nhiều
+            var items = await query.Take(2000).ToListAsync();
+            return Ok(items);
+
+            static DateOnly? ParseDateOnly(string? s)
+                => DateOnly.TryParse(s, out var d) ? d : null;
         }
     }
 }
