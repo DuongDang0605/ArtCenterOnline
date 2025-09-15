@@ -1,13 +1,15 @@
 ﻿using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
+using ArtCenterOnline.Server.Model.DTO.Auth;
+using ArtCenterOnline.Server.Model.Entities;
 using ArtCenterOnline.Server.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
-using ArtCenterOnline.Server.Model.DTO.Auth;
 
 
 namespace ArtCenterOnline.Server.Controllers
@@ -21,13 +23,15 @@ namespace ArtCenterOnline.Server.Controllers
         private readonly ILogger<AuthController> _logger;
         private readonly IOtpService _otpService;
         private readonly IResetTokenStore _resetTokenStore;
-        public AuthController(IResetTokenStore resetTokenStore, ILogger<AuthController> logger, IOtpService otpService, AppDbContext db, IJwtTokenService jwt)
+        private readonly WebTrafficOptions _trafficOpts;
+        public AuthController(IOptions<WebTrafficOptions> trafficOptions, IResetTokenStore resetTokenStore, ILogger<AuthController> logger, IOtpService otpService, AppDbContext db, IJwtTokenService jwt)
         {
             _logger = logger;
             _resetTokenStore = resetTokenStore;
             _otpService = otpService;
             _db = db;
             _jwt = jwt;
+            _trafficOpts = trafficOptions.Value;
         }
         public static string HashPassword(string rawPassword)
         {
@@ -42,6 +46,36 @@ namespace ArtCenterOnline.Server.Controllers
         private static bool LooksLikeBCrypt(string? s)
             => !string.IsNullOrEmpty(s) &&
                (s.StartsWith("$2a$") || s.StartsWith("$2b$") || s.StartsWith("$2y$"));
+
+        private static string ChoosePrimaryRole(IEnumerable<string> roles)
+        {
+            // Ưu tiên: Admin > Teacher > Student > User
+            var set = roles?.ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (set.Contains("Admin")) return "Admin";
+            if (set.Contains("Teacher")) return "Teacher";
+            if (set.Contains("Student")) return "Student";
+            if (set.Contains("User")) return "User";
+            // fallback nếu dự án bạn đặt tên khác
+            return set.FirstOrDefault() ?? "Unknown";
+        }
+
+        private string? GetClientIp()
+        {
+            var ctx = HttpContext;
+            if (ctx.Request.Headers.TryGetValue("X-Forwarded-For", out var v))
+                return v.ToString().Split(',').FirstOrDefault()?.Trim();
+            return ctx.Connection.RemoteIpAddress?.ToString();
+        }
+
+        private string? GetClientId()
+        {
+            var name = _trafficOpts?.CookieName ?? "aco_tid";
+            if (HttpContext.Request.Cookies.TryGetValue(name, out var id) && !string.IsNullOrWhiteSpace(id))
+                return id;
+            return null;
+        }
+
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginReq req)
         {
@@ -83,6 +117,10 @@ namespace ArtCenterOnline.Server.Controllers
 
             var access = _jwt.GenerateAccessToken(user, roles);
             var refresh = _jwt.GenerateRefreshToken(user);
+
+            var primaryRole = ChoosePrimaryRole(roles);
+            await SafeLogLoginAsync(user.UserId, user.Email, primaryRole);
+
 
             return Ok(new
             {
@@ -170,6 +208,36 @@ namespace ArtCenterOnline.Server.Controllers
             _logger.LogInformation("Password reset OK for userId={UserId}, otpId={OtpId}", user.UserId, otp.OtpId);
             return Ok(new { message = "Đổi mật khẩu thành công. Vui lòng đăng nhập lại." });
         }
+
+        private async Task SafeLogLoginAsync(int userId, string email, string role)
+        {
+            try
+            {
+                var utcNow = DateTime.UtcNow;
+                var localDate = DateOnly.FromDateTime(utcNow.AddHours(7)); // Asia/Bangkok
+
+                var log = new AuthLoginLog
+                {
+                    OccurredAtUtc = utcNow,
+                    DateLocal = localDate,
+                    UserId = userId,
+                    Email = email ?? string.Empty,
+                    Role = role ?? "Unknown",
+                    ClientId = GetClientId(),
+                    UserAgent = HttpContext.Request.Headers.UserAgent.ToString(),
+                    Ip = GetClientIp()
+                };
+
+                _db.AuthLoginLogs.Add(log);
+                await _db.SaveChangesAsync();
+            }
+            catch
+            {
+                // không throw để tránh ảnh hưởng luồng login
+                // có thể thêm _logger.LogWarning nếu bạn inject ILogger<AuthController>
+            }
+        }
+
 
 
     }

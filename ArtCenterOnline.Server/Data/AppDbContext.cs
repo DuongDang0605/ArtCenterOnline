@@ -1,4 +1,5 @@
 ﻿using ArtCenterOnline.Server.Model;
+using ArtCenterOnline.Server.Model.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 
@@ -23,6 +24,11 @@ namespace ArtCenterOnline.Server.Data
         public DbSet<Attendance> Attendances => Set<Attendance>();
         public DbSet<TeacherMonthlyStat> TeacherMonthlyStats => Set<TeacherMonthlyStat>();
         public DbSet<PasswordResetOtp> PasswordResetOtps { get; set; } = default!;
+
+        public DbSet<WebRequestLog> WebRequestLogs { get; set; }
+        public DbSet<WebTrafficDaily> WebTrafficDailies { get; set; }
+        public DbSet<WebTrafficMonthly> WebTrafficMonthlies { get; set; }
+        public DbSet<AuthLoginLog> AuthLoginLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -285,6 +291,65 @@ namespace ArtCenterOnline.Server.Data
                 entity.HasIndex(e => new { e.UserId, e.Purpose })
                       .IsUnique()
                       .HasFilter("[ConsumedAtUtc] IS NULL");
+            });
+            // WEB REQUEST LOGS
+            modelBuilder.Entity<WebRequestLog>(entity =>
+            {
+                entity.ToTable("WebRequestLogs");
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.Path).HasMaxLength(300).IsRequired();
+                entity.Property(e => e.Method).HasMaxLength(10).IsRequired();
+                entity.Property(e => e.Role).HasMaxLength(30);
+                entity.Property(e => e.ClientId).HasMaxLength(64);
+                entity.Property(e => e.UserAgent).HasMaxLength(512);
+                entity.Property(e => e.Ip).HasMaxLength(64);
+
+                entity.HasIndex(e => e.DateLocal);
+                entity.HasIndex(e => new { e.Path, e.DateLocal });
+            });
+
+            // WEB TRAFFIC DAILY
+            modelBuilder.Entity<WebTrafficDaily>(entity =>
+            {
+                entity.ToTable("WebTrafficDaily");
+                entity.HasKey(e => new { e.Date, e.Path }); // Path = "" cho tổng site
+
+                entity.Property(e => e.Path).HasMaxLength(300).IsRequired();
+                entity.Property(e => e.Hits).HasDefaultValue(0);
+                entity.Property(e => e.UniqueVisitors).HasDefaultValue(0);
+
+                entity.HasIndex(e => e.Date);
+            });
+
+            // WEB TRAFFIC MONTHLY
+            modelBuilder.Entity<WebTrafficMonthly>(entity =>
+            {
+                entity.ToTable("WebTrafficMonthly");
+                entity.HasKey(e => new { e.Year, e.Month, e.Path });
+
+                entity.Property(e => e.Path).HasMaxLength(300).IsRequired();
+                entity.Property(e => e.Hits).HasDefaultValue(0);
+                entity.Property(e => e.UniqueVisitors).HasDefaultValue(0);
+
+                entity.HasIndex(e => new { e.Year, e.Month });
+            });
+
+            // AUTH LOGIN LOGS
+            modelBuilder.Entity<AuthLoginLog>(entity =>
+            {
+                entity.ToTable("AuthLoginLogs");
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.Email).HasMaxLength(100).IsRequired();
+                entity.Property(e => e.Role).HasMaxLength(30).IsRequired();
+                entity.Property(e => e.ClientId).HasMaxLength(64);
+                entity.Property(e => e.UserAgent).HasMaxLength(512);
+                entity.Property(e => e.Ip).HasMaxLength(64);
+
+                entity.HasIndex(e => e.DateLocal);
+                entity.HasIndex(e => new { e.Role, e.DateLocal });
+                entity.HasIndex(e => new { e.UserId, e.DateLocal });
             });
 
 

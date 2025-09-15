@@ -4,7 +4,7 @@ public class ClassInfo
 {
     public int ClassID { get; set; }
     public string ClassName { get; set; } = string.Empty;
-    public DateTime DayStart { get; set; }
+    public DateTime? DayStart { get; set; }
     public string Branch { get; set; } = string.Empty;
     public int Status { get; set; }
 

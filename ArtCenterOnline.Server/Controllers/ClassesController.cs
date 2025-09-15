@@ -23,13 +23,19 @@ public class ClassesController : ControllerBase
     public record ClassDto(
         int ClassID,
         string ClassName,
-        DateTime DayStart,
+        DateTime? DayStart,
         string Branch,
         int Status
     );
 
     private static ClassDto ToDto(ClassInfo c)
-        => new(c.ClassID, c.ClassName, c.DayStart, c.Branch, c.Status);
+        => new(
+            c.ClassID,
+            c.ClassName,
+            c.DayStart , // Fix: handle nullable DateTime
+            c.Branch,
+            c.Status
+        );
 
     private IActionResult Error(int status, string message) => StatusCode(status, new { message });
 
@@ -40,7 +46,12 @@ public class ClassesController : ControllerBase
     {
         var items = await _db.Classes
             .AsNoTracking()
-            .Select(c => new ClassDto(c.ClassID, c.ClassName, c.DayStart, c.Branch, c.Status))
+            .Select(c => new ClassDto(
+                c.ClassID,
+                c.ClassName,
+                c.DayStart ?? default, // Fix: handle nullable DateTime
+                c.Branch,
+                c.Status))
             .ToListAsync();
 
         return Ok(items);
@@ -61,39 +72,66 @@ public class ClassesController : ControllerBase
     // ====== CREATE ======
     [HttpPost]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<ActionResult<ClassDto>> Create([FromBody] ClassInfo input)
+    public async Task<ActionResult<ClassDto>> Create([FromBody] ClassDto input, CancellationToken ct)
     {
-        _db.Classes.Add(input);
-        await _db.SaveChangesAsync();
-        var created = await _db.Classes.FirstAsync(c => c.ClassID == input.ClassID);
-        return CreatedAtAction(nameof(Get), new { id = created.ClassID }, ToDto(created));
+        var entity = new ClassInfo
+        {
+            ClassName = input.ClassName?.Trim(),
+            Branch = input.Branch?.Trim(),
+            Status = input.Status,
+            DayStart = (input.DayStart?.Date) ?? DateTime.Today // mặc định hôm nay
+        };
+
+        _db.Classes.Add(entity);
+        await _db.SaveChangesAsync(ct);
+
+        return CreatedAtAction(nameof(Get), new { id = entity.ClassID }, ToDto(entity));
     }
+
 
     // ====== UPDATE (KHÔNG còn logic đổi GV chính) ======
     [HttpPut("{id:int}")]
-    [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> Update(int id, [FromBody] ClassInfo payload, CancellationToken ct)
-    {
-        var item = await _db.Classes.FirstOrDefaultAsync(c => c.ClassID == id, ct);
-        if (item is null) return NotFound();
+[Authorize(Policy = "AdminOnly")]
+public async Task<IActionResult> Update(int id, [FromBody] ClassInfo payload, CancellationToken ct)
+{
+    var strategy = _db.Database.CreateExecutionStrategy();
 
-        using var tx = await _db.Database.BeginTransactionAsync(ct);
+    // Bọc toàn bộ thao tác (kể cả transaction) trong execution strategy để có thể retry an toàn
+    return await strategy.ExecuteAsync<IActionResult>(async () =>
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        var item = await _db.Classes.FirstOrDefaultAsync(c => c.ClassID == id, ct);
+        if (item is null)
+        {
+            // Không có thay đổi nào; transaction sẽ tự dispose.
+            return NotFound();
+        }
 
         var oldStatus = item.Status;
-        // cập nhật các trường khác…
+
+        // Cập nhật các trường…
         item.ClassName = payload.ClassName?.Trim() ?? item.ClassName;
-        item.Branch = payload.Branch?.Trim() ?? item.Branch;
-        item.DayStart = payload.DayStart == default ? item.DayStart : payload.DayStart;
-        item.Status = payload.Status; // 0=dừng, 1=đang hoạt động, … (giữ mapping hiện tại)
+        item.Branch    = payload.Branch?.Trim()    ?? item.Branch;
+        item.DayStart  = payload.DayStart == default ? item.DayStart : payload.DayStart;
+        item.Status    = payload.Status; // 0=dừng, 1=đang hoạt động, …
 
         await _db.SaveChangesAsync(ct);
 
-        // Nếu chuyển từ Đang hoạt động (1) sang Dừng (0) → Huỷ các buổi từ bây giờ trở đi
+        int cancelled = 0;
         if (oldStatus == 1 && item.Status == 0)
         {
-            var cancelled = await CancelFutureSessionsForClassAsync(item.ClassID, ct);
-            // (tuỳ chọn) có thể trả về cancelled count cho FE
-            await tx.CommitAsync(ct);
+            // QUAN TRỌNG: phương thức này nên dùng CÙNG DbContext (_db) và KHÔNG tự mở transaction riêng.
+            cancelled = await CancelFutureSessionsForClassAsync(item.ClassID, ct);
+
+            // Nếu CancelFutureSessionsForClassAsync KHÔNG gọi SaveChanges bên trong, hãy giữ dòng dưới:
+            // await _db.SaveChangesAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+
+        if (oldStatus == 1 && item.Status == 0)
+        {
             return Ok(new
             {
                 message = $"Đã cập nhật lớp và huỷ {cancelled} buổi từ thời điểm tắt.",
@@ -102,9 +140,10 @@ public class ClassesController : ControllerBase
             });
         }
 
-        await tx.CommitAsync(ct);
         return Ok(new { message = "Đã cập nhật lớp.", classId = item.ClassID });
-    }
+    });
+}
+
 
 
     // Hủy tất cả buổi của lớp từ "bây giờ" trở đi (tính theo local time).

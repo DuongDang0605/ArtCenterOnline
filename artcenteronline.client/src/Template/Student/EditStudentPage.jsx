@@ -128,6 +128,7 @@ export default function EditStudentPage() {
         if (!form.ngayBatDauHoc) return "Vui lòng nhập Ngày bắt đầu học (dd/mm/yyyy).";
         if (form.SoBuoiHocConLai < 0) return "Số buổi học còn lại không hợp lệ.";
         if (form.SoBuoiHocDaHoc < 0) return "Số buổi đã học không hợp lệ.";
+        if (form.PhoneNumber.length > 10) return "Số điện thoại không hợp lệ";
         return "";
     }
 

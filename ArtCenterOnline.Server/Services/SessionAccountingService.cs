@@ -1,4 +1,4 @@
-﻿// Services/SessionAccountingService.cs
+﻿// Service/SessionAccountingService.cs
 using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
 using Microsoft.EntityFrameworkCore;
