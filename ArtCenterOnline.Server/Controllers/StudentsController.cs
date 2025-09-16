@@ -231,7 +231,7 @@ public class StudentsController : ControllerBase
         if (input.ParentName != null) st.ParentName = Clean(input.ParentName)!;
         if (input.PhoneNumber != null) st.PhoneNumber = Clean(input.PhoneNumber)!;
         if (input.Adress != null) st.Adress = Clean(input.Adress)!;
-        
+
         await _db.SaveChangesAsync(ct);
 
         var me = await _db.Students.AsNoTracking()

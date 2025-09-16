@@ -185,8 +185,8 @@ export default function ReportsDashboardPage() {
         const full = e?.fullName;
         const uid = e?.userId ?? e?.email ?? "-";
 
-        if (role === "teacher") return tName ;
-        if (role === "student") return sName ;
+        if (role === "teacher") return tName;
+        if (role === "student") return sName;
         return full ?? tName ?? sName ?? uid;
     };
 
@@ -535,7 +535,7 @@ export default function ReportsDashboardPage() {
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
                     >
                         <h3 className="box-title">Đăng nhập theo ngày (trong tháng)</h3>
-                      
+
                     </div>
                     <div className="box-body">
                         <div className="row" style={{ marginBottom: 12, display: "flex", alignItems: "stretch" }}>
@@ -562,24 +562,24 @@ export default function ReportsDashboardPage() {
                                 </div>
                             </div>
                             <div className="col-lg-6 col-xs-6" style={{ display: "flex" }}>
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
-                                        <button
-      className="btn btn-primary btn-sm"
-                                           onClick={() => {
-                                                 const { from, to } = ymToRange(month);
-                                                setModalFrom(from);
-                                              setModalTo(to);
-                                              setModalFromText(isoToDMY(from));
-                                                setModalToText(isoToDMY(to));
-                                                 setLoginModalOpen(true);
-                                                loadLoginEvents(from, to);
-                                               }}
-    >
-                                           <i className="fa fa-list-ul" /> Xem lượt đăng nhập trong tháng
-                                         </button>
-                                  </div>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
+                                    <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => {
+                                            const { from, to } = ymToRange(month);
+                                            setModalFrom(from);
+                                            setModalTo(to);
+                                            setModalFromText(isoToDMY(from));
+                                            setModalToText(isoToDMY(to));
+                                            setLoginModalOpen(true);
+                                            loadLoginEvents(from, to);
+                                        }}
+                                    >
+                                        <i className="fa fa-list-ul" /> Xem lượt đăng nhập trong tháng
+                                    </button>
+                                </div>
                             </div>
-                             </div>
+                        </div>
 
                         <div className="box chart-box">
                             <div className="box-header with-border">

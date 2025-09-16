@@ -232,7 +232,7 @@ export default function ClassSchedulesPage() {
                             Quay lại
                         </Link>
                     </div>
-                   
+
 
                     <div className="box-body table-responsive">
                         <table ref={tableRef} className="table table-hover" style={{ width: "100%" }}>

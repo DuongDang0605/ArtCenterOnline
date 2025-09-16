@@ -234,7 +234,7 @@ export default function ClassesPage() {
                                                     {/* Lịch học / Sync tháng */}
                                                     <td>
                                                         <div className="btn-group btn-group-xs" role="group">
-                                                            
+
                                                             {isAdmin ? (
                                                                 <div>
                                                                     <Link to={`/classes/${c.id}/schedules`} className="btn btn-warning btn-xs">
@@ -253,19 +253,19 @@ export default function ClassesPage() {
 
                                                                 </div>
                                                             ) : (
-                                                                 <div>
-                                                                        <Link to={`/classes/${c.id}/schedules`} className="btn btn-default btn-xs disabled">
-                                                                            <i className="fa fa-calendar" /> Xét lịch
-                                                                        </Link>       
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-default btn-xs disabled"
-                                                                    disabled
-                                                                    title="Chỉ Admin được đồng bộ"
-                                                                    style={{ cursor: "not-allowed", opacity: .6 }}
-                                                                >
-                                                                    <i className="fa fa-refresh" /> Lên lịch tháng
-                                                                        </button>
+                                                                <div>
+                                                                    <Link to={`/classes/${c.id}/schedules`} className="btn btn-default btn-xs disabled">
+                                                                        <i className="fa fa-calendar" /> Xét lịch
+                                                                    </Link>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-default btn-xs disabled"
+                                                                        disabled
+                                                                        title="Chỉ Admin được đồng bộ"
+                                                                        style={{ cursor: "not-allowed", opacity: .6 }}
+                                                                    >
+                                                                        <i className="fa fa-refresh" /> Lên lịch tháng
+                                                                    </button>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -273,7 +273,7 @@ export default function ClassesPage() {
 
                                                     {/* Hành động */}
                                                     <td>
-                                                        <div className="btn-group btn-group-xs" role="group">     
+                                                        <div className="btn-group btn-group-xs" role="group">
                                                             {isAdmin ? (
                                                                 <>
                                                                     <Link to={`/classes/${c.id}/edit`} className="btn btn-primary btn-xs">

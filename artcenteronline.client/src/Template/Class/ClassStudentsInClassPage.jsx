@@ -236,7 +236,7 @@ export default function ClassStudentsInClassPage() {
                     <div className="box-header with-border" style={{ display: "flex", justifyContent: "space-between" }}>
                         <h3 className="box-title">Danh sách (có thể bật/tắt IsActive)</h3>
                         <div className="box-tools" style={{ display: "flex", gap: 8 }}>
-                          
+
                             <button className="btn btn-default btn-sm" onClick={() => navigate(-1)}>
                                 <i className="fa fa-arrow-left" /> Quay lại
                             </button>

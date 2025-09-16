@@ -172,7 +172,7 @@ namespace ArtCenterOnline.Server.Controllers
             await _db.SaveChangesAsync(ct);
             return NoContent();
         }
-      
+
         // ===== DELETE: api/users/5 =====
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)

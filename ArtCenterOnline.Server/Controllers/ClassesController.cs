@@ -32,7 +32,7 @@ public class ClassesController : ControllerBase
         => new(
             c.ClassID,
             c.ClassName,
-            c.DayStart , // Fix: handle nullable DateTime
+            c.DayStart, // Fix: handle nullable DateTime
             c.Branch,
             c.Status
         );
@@ -91,58 +91,58 @@ public class ClassesController : ControllerBase
 
     // ====== UPDATE (KHÔNG còn logic đổi GV chính) ======
     [HttpPut("{id:int}")]
-[Authorize(Policy = "AdminOnly")]
-public async Task<IActionResult> Update(int id, [FromBody] ClassInfo payload, CancellationToken ct)
-{
-    var strategy = _db.Database.CreateExecutionStrategy();
-
-    // Bọc toàn bộ thao tác (kể cả transaction) trong execution strategy để có thể retry an toàn
-    return await strategy.ExecuteAsync<IActionResult>(async () =>
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> Update(int id, [FromBody] ClassInfo payload, CancellationToken ct)
     {
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        var strategy = _db.Database.CreateExecutionStrategy();
 
-        var item = await _db.Classes.FirstOrDefaultAsync(c => c.ClassID == id, ct);
-        if (item is null)
+        // Bọc toàn bộ thao tác (kể cả transaction) trong execution strategy để có thể retry an toàn
+        return await strategy.ExecuteAsync<IActionResult>(async () =>
         {
-            // Không có thay đổi nào; transaction sẽ tự dispose.
-            return NotFound();
-        }
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        var oldStatus = item.Status;
-
-        // Cập nhật các trường…
-        item.ClassName = payload.ClassName?.Trim() ?? item.ClassName;
-        item.Branch    = payload.Branch?.Trim()    ?? item.Branch;
-        item.DayStart  = payload.DayStart == default ? item.DayStart : payload.DayStart;
-        item.Status    = payload.Status; // 0=dừng, 1=đang hoạt động, …
-
-        await _db.SaveChangesAsync(ct);
-
-        int cancelled = 0;
-        if (oldStatus == 1 && item.Status == 0)
-        {
-            // QUAN TRỌNG: phương thức này nên dùng CÙNG DbContext (_db) và KHÔNG tự mở transaction riêng.
-            cancelled = await CancelFutureSessionsForClassAsync(item.ClassID, ct);
-
-            // Nếu CancelFutureSessionsForClassAsync KHÔNG gọi SaveChanges bên trong, hãy giữ dòng dưới:
-            // await _db.SaveChangesAsync(ct);
-        }
-
-        await tx.CommitAsync(ct);
-
-        if (oldStatus == 1 && item.Status == 0)
-        {
-            return Ok(new
+            var item = await _db.Classes.FirstOrDefaultAsync(c => c.ClassID == id, ct);
+            if (item is null)
             {
-                message = $"Đã cập nhật lớp và huỷ {cancelled} buổi từ thời điểm tắt.",
-                classId = item.ClassID,
-                cancelled
-            });
-        }
+                // Không có thay đổi nào; transaction sẽ tự dispose.
+                return NotFound();
+            }
 
-        return Ok(new { message = "Đã cập nhật lớp.", classId = item.ClassID });
-    });
-}
+            var oldStatus = item.Status;
+
+            // Cập nhật các trường…
+            item.ClassName = payload.ClassName?.Trim() ?? item.ClassName;
+            item.Branch = payload.Branch?.Trim() ?? item.Branch;
+            item.DayStart = payload.DayStart == default ? item.DayStart : payload.DayStart;
+            item.Status = payload.Status; // 0=dừng, 1=đang hoạt động, …
+
+            await _db.SaveChangesAsync(ct);
+
+            int cancelled = 0;
+            if (oldStatus == 1 && item.Status == 0)
+            {
+                // QUAN TRỌNG: phương thức này nên dùng CÙNG DbContext (_db) và KHÔNG tự mở transaction riêng.
+                cancelled = await CancelFutureSessionsForClassAsync(item.ClassID, ct);
+
+                // Nếu CancelFutureSessionsForClassAsync KHÔNG gọi SaveChanges bên trong, hãy giữ dòng dưới:
+                // await _db.SaveChangesAsync(ct);
+            }
+
+            await tx.CommitAsync(ct);
+
+            if (oldStatus == 1 && item.Status == 0)
+            {
+                return Ok(new
+                {
+                    message = $"Đã cập nhật lớp và huỷ {cancelled} buổi từ thời điểm tắt.",
+                    classId = item.ClassID,
+                    cancelled
+                });
+            }
+
+            return Ok(new { message = "Đã cập nhật lớp.", classId = item.ClassID });
+        });
+    }
 
 
 
