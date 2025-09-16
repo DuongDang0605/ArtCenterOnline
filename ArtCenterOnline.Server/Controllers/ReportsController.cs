@@ -244,18 +244,24 @@ namespace ArtCenterOnline.Server.Controllers
             var fromD = ParseDateOnly(from) ?? new DateOnly(todayLocal.Year, todayLocal.Month, 1);
             var toD = ParseDateOnly(to) ?? todayLocal;
 
-            // join Users để lấy FullName
+            // join Users, Teachers, Students để lấy đủ tên
             var tz = TimeSpan.FromHours(7);
             var query =
                 from l in db.AuthLoginLogs
-                join u in db.Users on l.UserId equals u.UserId into gj
-                from u in gj.DefaultIfEmpty()
+                join u in db.Users on l.UserId equals u.UserId into gu
+                from u in gu.DefaultIfEmpty()
+                join t in db.Teachers on l.UserId equals t.UserId into gt
+                from t in gt.DefaultIfEmpty()
+                join s in db.Students on l.UserId equals s.UserId into gs
+                from s in gs.DefaultIfEmpty()
                 where l.DateLocal >= fromD && l.DateLocal <= toD
                 orderby l.OccurredAtUtc descending
                 select new
                 {
                     l.UserId,
                     fullName = u != null ? (u.FullName ?? "") : "",
+                    teacherName = t != null ? (t.TeacherName ?? "") : null,
+                    studentName = s != null ? (s.StudentName ?? "") : null,
                     l.Email,
                     l.Role,
                     l.Ip,
@@ -271,5 +277,6 @@ namespace ArtCenterOnline.Server.Controllers
             static DateOnly? ParseDateOnly(string? s)
                 => DateOnly.TryParse(s, out var d) ? d : null;
         }
+
     }
 }

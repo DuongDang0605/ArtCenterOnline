@@ -1,6 +1,6 @@
 ﻿// src/Template/User/UsersPage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Link} from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { getUsers } from "./users"; // hàm fetch API Users
 
@@ -10,6 +10,9 @@ export default function UsersPage() {
     const [err, setErr] = useState(null);
     const tableRef = useRef(null);
     const dtRef = useRef(null);
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [notice, setNotice] = useState(location.state?.notice || "");
 
     // Load data
     useEffect(() => {
@@ -26,6 +29,22 @@ export default function UsersPage() {
         })();
         return () => { alive = false; };
     }, []);
+
+    // Clear route state.notice sau khi hiển thị 1 lần
+    useEffect(() => {
+        if (location.state?.notice) {
+            // xóa state ngay lập tức (không gây re-render loop)
+            setTimeout(() => navigate(".", { replace: true, state: {} }), 0);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Tự ẩn thông báo sau 4s
+    useEffect(() => {
+        if (!notice) return;
+        const t = setTimeout(() => setNotice(""), 4000);
+        return () => clearTimeout(t);
+    }, [notice]);
 
     // Init DataTable
     useEffect(() => {
@@ -78,6 +97,32 @@ export default function UsersPage() {
 
     return (
         <>
+            {/* Toast thành công (tự ẩn sau 4s) — giống Schedule */}
+            {notice && (
+                <div
+                    className="alert alert-success"
+                    style={{
+                        position: "fixed",
+                        top: 70,
+                        right: 16,
+                        zIndex: 9999,
+                        maxWidth: 420,
+                        boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+                    }}
+                >
+                    <button
+                        type="button"
+                        className="close"
+                        onClick={() => setNotice("")}
+                        aria-label="Close"
+                        style={{ marginLeft: 8 }}
+                    >
+                        <span aria-hidden="true">&times;</span>
+                    </button >
+                    {notice}
+                </div >
+            )
+            }
             <section className="content-header">
                 <h1>Bảng thông tin tài khoản</h1>
                 <ol className="breadcrumb">
@@ -103,7 +148,7 @@ export default function UsersPage() {
                                         <tr>
                                             <th style={{ width: 80 }}>ID</th>
                                             <th>Email</th>
-                                            
+
                                             <th>Vai trò</th>
                                             <th>Trạng thái</th>
                                             <th>Hành động</th>
@@ -114,7 +159,7 @@ export default function UsersPage() {
                                             <tr key={x.userId}>
                                                 <td>{x.userId}</td>
                                                 <td>{x.userEmail}</td>
-                                               
+
                                                 <td>{x.role}</td>
                                                 <td>
                                                     <span className={`label ${x.status === 1 ? "label-success" : "label-default"}`}>

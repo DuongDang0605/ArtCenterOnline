@@ -85,7 +85,10 @@ export default function EditUserPage() {
             }
 
             await updateUser(Number(id), payload);
-            navigate("/users");
+            navigate("/users", {
+                state: { notice: `Cập nhật tài khoản #${id} thành công.` },
+                replace: true,
+            });
         } catch (e) {
             setErr(e?.message || "Update failed");
         } finally {
