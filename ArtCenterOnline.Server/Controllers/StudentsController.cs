@@ -71,60 +71,66 @@ public class StudentsController : ControllerBase
     {
         if (!ModelState.IsValid) return ValidationProblem(ModelState);
 
-        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+        var strategy = _db.Database.CreateExecutionStrategy();
+
         try
         {
-            // 1) Tạo USER trước với email tạm để không dính ràng buộc FK NOT NULL
-            var tempEmail = $"studenttmp-{Guid.NewGuid():N}@example.com";
-            var user = new User
+            return await strategy.ExecuteAsync<ActionResult<object>>(async () =>
             {
-                Email = tempEmail,
-                // Dùng BCrypt như các chỗ khác trong dự án
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
-                FullName = (input.StudentName ?? string.Empty).Trim(),
-                IsActive = (input.Status == 1)
-            };
-            _db.Users.Add(user);
-            await _db.SaveChangesAsync(ct); // có userId
+                await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-            // 2) Gán ROLE Student
-            var studentRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Student", ct);
-            if (studentRole == null)
-            {
-                studentRole = new Role { Name = "Student" };
-                _db.Roles.Add(studentRole);
+                // 1) Tạo USER với email tạm và mật khẩu mặc định
+                var tempEmail = $"studenttmp-{Guid.NewGuid():N}@example.com";
+                var user = new User
+                {
+                    Email = tempEmail,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("123456"),
+                    FullName = (input.StudentName ?? string.Empty).Trim(),
+                    IsActive = (input.Status == 1)
+                };
+                _db.Users.Add(user);
+                await _db.SaveChangesAsync(ct); // có UserId
+
+                // 2) Gán ROLE Student (tạo nếu chưa có)
+                var studentRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "Student", ct);
+                if (studentRole == null)
+                {
+                    studentRole = new Role { Name = "Student" };
+                    _db.Roles.Add(studentRole);
+                    await _db.SaveChangesAsync(ct);
+                }
+                _db.UserRoles.Add(new UserRole { UserId = user.UserId, RoleId = studentRole.RoleId });
+
+                // 3) Tạo STUDENT liên kết User vừa tạo
+                input.UserId = user.UserId;
+                _db.Students.Add(input);
+                await _db.SaveChangesAsync(ct); // có StudentId
+
+                // 4) Cập nhật email cuối cùng dựa theo StudentId
+                var finalEmail = $"student{input.StudentId}@example.com";
+                var taken = await _db.Users.AnyAsync(u => u.Email == finalEmail && u.UserId != user.UserId, ct);
+                if (taken)
+                {
+                    await tx.RollbackAsync(ct);
+                    return Conflict(new { message = $"Email {finalEmail} đã tồn tại, không thể tạo tài khoản cho học sinh #{input.StudentId}." });
+                }
+
+                user.Email = finalEmail;
                 await _db.SaveChangesAsync(ct);
-            }
-            _db.UserRoles.Add(new UserRole { UserId = user.UserId, RoleId = studentRole.RoleId });
 
-            // 3) Tạo STUDENT liên kết với user vừa tạo
-            input.UserId = user.UserId;
-            _db.Students.Add(input);
-            await _db.SaveChangesAsync(ct); // có StudentId
+                await tx.CommitAsync(ct);
 
-            // 4) Cập nhật email chuẩn sau khi biết StudentId
-            var finalEmail = $"student{input.StudentId}@example.com";
-            var taken = await _db.Users.AnyAsync(u => u.Email == finalEmail && u.UserId != user.UserId, ct);
-            if (taken)
-            {
-                return Conflict(new { message = $"Email {finalEmail} đã tồn tại, không thể tạo tài khoản cho học sinh #{input.StudentId}." });
-            }
-            user.Email = finalEmail;
-            await _db.SaveChangesAsync(ct);
-
-            await tx.CommitAsync(ct);
-
-            // 5) TRẢ DTO GỌN -> tránh vòng tham chiếu
-            return Ok(new
-            {
-                studentId = input.StudentId,
-                email = finalEmail,
-                tempPassword = "123456"
+                // 5) Trả kết quả gọn
+                return Ok(new
+                {
+                    studentId = input.StudentId,
+                    email = finalEmail,
+                    tempPassword = "123456"
+                });
             });
         }
         catch (Exception ex)
         {
-            await tx.RollbackAsync(ct);
             return StatusCode(500, new
             {
                 message = "Tạo học viên + tài khoản đăng nhập thất bại.",
@@ -132,6 +138,7 @@ public class StudentsController : ControllerBase
             });
         }
     }
+
 
 
 

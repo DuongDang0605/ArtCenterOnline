@@ -177,6 +177,19 @@ export default function ReportsDashboardPage() {
     const [modalToText, setModalToText] = useState("");
 
     const fmtLocal = (s) => (s ? String(s).replace("T", " ").slice(0, 16) : "");
+    // Chọn tên hiển thị theo role
+    const getLoginName = (e) => {
+        const role = String(e?.role || "").toLowerCase();
+        const tName = e?.teacherName ?? e?.TeacherName;
+        const sName = e?.studentName ?? e?.StudentName;
+        const full = e?.fullName;
+        const uid = e?.userId ?? e?.email ?? "-";
+
+        if (role === "teacher") return tName ;
+        if (role === "student") return sName ;
+        return full ?? tName ?? sName ?? uid;
+    };
+
 
     // NEW: tải danh sách theo khoảng ngày
     const loadLoginEvents = async (rangeFrom, rangeTo) => {
@@ -734,7 +747,7 @@ export default function ReportsDashboardPage() {
                                                         {pageRows.map((e, idx) => (
                                                             <tr key={idx}>
                                                                 <td>{fmtLocal(e.occurredAtLocal ?? e.occurredAtUtc)}</td>
-                                                                <td>{e.fullName ?? e.userId}</td>
+                                                                <td>{getLoginName(e)}</td>
                                                                 <td>{e.role}</td>
                                                                 <td>{e.email}</td>
                                                                 <td>{e.ip ?? "-"}</td>

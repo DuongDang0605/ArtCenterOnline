@@ -69,14 +69,33 @@ export async function getSession(sessionId) {
 }
 
 /** Cập nhật 1 buổi */
-export async function updateSession(sessionId, payload) {
+/** Cập nhật 1 buổi */
+export async function updateSession(sessionId, payload, opts) {
     try {
-        const { data } = await http.put(`${BASE}/${sessionId}`, payload);
+        const body = { ...payload };
+
+        // xác định override từ payload hoặc từ opts
+        const override =
+            payload?.OverrideStudentConflicts === true ||
+            payload?.overrideStudentConflicts === true ||
+            opts?.override === true;
+
+        if (override) {
+            // gửi cả PascalCase & camelCase để BE nào cũng nhận được
+            body.OverrideStudentConflicts = true;
+            body.overrideStudentConflicts = true;
+        }
+
+        const url =
+            `/ClassSessions/${sessionId}` + (override ? `?overrideStudentConflicts=true` : "");
+
+        const { data } = await http.put(url, body);
         return data;
     } catch (err) {
         throw enrichError(err);
     }
 }
+
 
 // =======================
 // PREFLIGHTS

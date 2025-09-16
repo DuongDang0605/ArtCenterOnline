@@ -27,56 +27,70 @@ namespace ArtCenterOnline.Server.Services
 
         public async Task<(bool applied, string? msg)> ApplyAsync(int sessionId, bool teacherOnly = false)
         {
-            using var tx = await _db.Database.BeginTransactionAsync();
+            var strategy = _db.Database.CreateExecutionStrategy();
 
-            var s = await _db.ClassSessions.FirstOrDefaultAsync(x => x.SessionId == sessionId);
-            if (s == null) return (false, "Không tìm thấy buổi học.");
-            if (s.Status == SessionStatus.Cancelled) return (false, "Buổi học đã hủy.");
+            (bool applied, string? msg) outcome = (false, null);
 
-            // ============ 1) Hạch toán HỌC SINH (chỉ 1 lần, trừ khi teacherOnly) ============
-            // Yêu cầu: present/absent đều +1 cho HS còn active trong lớp tại thời điểm buổi học.
-            // Không hạch toán lại HS ở lần sau để tránh đếm trùng.
-            if (!teacherOnly && !s.AccountingApplied)
+            await strategy.ExecuteAsync(async () =>
             {
-                var atts = await _db.Attendances
-                    .Where(a => a.SessionId == sessionId)
-                    .Select(a => new { a.StudentId })
-                    .ToListAsync();
+                await using var tx = await _db.Database.BeginTransactionAsync();
 
-                foreach (var a in atts)
+                // ---- TẢI DỮ LIỆU CẦN THIẾT BÊN TRONG CHIẾN LƯỢC + TRANSACTION ----
+                var s = await _db.ClassSessions.FirstOrDefaultAsync(x => x.SessionId == sessionId);
+                if (s == null)
                 {
-                    bool activeInClass = await _db.ClassStudents.AnyAsync(cs =>
-                        cs.ClassID == s.ClassID && cs.StudentId == a.StudentId && cs.IsActive);
-                    if (!activeInClass) continue;
-
-                    var st = await _db.Students.FirstOrDefaultAsync(x => x.StudentId == a.StudentId);
-                    if (st == null) continue;
-
-                    st.SoBuoiHocDaHoc = st.SoBuoiHocDaHoc <= 0 ? 1 : st.SoBuoiHocDaHoc + 1;
-
-                    var csRow = await _db.ClassStudents.FirstOrDefaultAsync(cs =>
-                        cs.ClassID == s.ClassID && cs.StudentId == a.StudentId);
-                    if (csRow != null)
-                    {
-                        if (csRow.RemainingSessions > 0)
-                            csRow.RemainingSessions -= 1;
-                        else
-                            csRow.RemainingSessions = 0;
-                    }
+                    outcome = (false, "Không tìm thấy buổi học.");
+                    return;
+                }
+                if (s.Status == SessionStatus.Cancelled)
+                {
+                    outcome = (false, "Buổi học đã hủy.");
+                    return;
                 }
 
-                s.AccountingApplied = true;
-                s.AccountingAppliedAtUtc = DateTime.UtcNow;
-                await _db.SaveChangesAsync();
-            }
+                // ============ 1) Hạch toán HỌC SINH (chỉ 1 lần, trừ khi teacherOnly) ============
+                if (!teacherOnly && !s.AccountingApplied)
+                {
+                    var atts = await _db.Attendances
+                        .Where(a => a.SessionId == sessionId)
+                        .Select(a => new { a.StudentId })
+                        .ToListAsync();
 
-            // ============ 2) Đồng bộ lại số buổi dạy giáo viên trong THÁNG của buổi ============
-            // Không tăng/giảm kiểu cộng dồn nữa → thay bằng TÍNH LẠI từ bảng ClassSessions
-            // (status = Completed, TeacherId != null, cùng Year/Month của session này).
-            await RecomputeTeacherMonthAsync(s.SessionDate.Year, s.SessionDate.Month);
+                    foreach (var a in atts)
+                    {
+                        bool activeInClass = await _db.ClassStudents.AnyAsync(cs =>
+                            cs.ClassID == s.ClassID && cs.StudentId == a.StudentId && cs.IsActive);
+                        if (!activeInClass) continue;
 
-            await tx.CommitAsync();
-            return (true, teacherOnly ? "Đã hạch toán lại giáo viên (chỉ GV)." : s.AccountingApplied ? "Đã hạch toán." : "Đã hạch toán.");
+                        var st = await _db.Students.FirstOrDefaultAsync(x => x.StudentId == a.StudentId);
+                        if (st == null) continue;
+
+                        st.SoBuoiHocDaHoc = st.SoBuoiHocDaHoc <= 0 ? 1 : st.SoBuoiHocDaHoc + 1;
+
+                        var csRow = await _db.ClassStudents.FirstOrDefaultAsync(cs =>
+                            cs.ClassID == s.ClassID && cs.StudentId == a.StudentId);
+                        if (csRow != null)
+                        {
+                            if (csRow.RemainingSessions > 0)
+                                csRow.RemainingSessions -= 1;
+                            else
+                                csRow.RemainingSessions = 0;
+                        }
+                    }
+
+                    s.AccountingApplied = true;
+                    s.AccountingAppliedAtUtc = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
+                }
+
+                // ============ 2) Đồng bộ lại số buổi dạy giáo viên trong THÁNG của buổi ============
+                await RecomputeTeacherMonthAsync(s.SessionDate.Year, s.SessionDate.Month);
+
+                await tx.CommitAsync();
+                outcome = (true, teacherOnly ? "Đã hạch toán lại giáo viên (chỉ GV)." : "Đã hạch toán.");
+            });
+
+            return outcome;
         }
 
         /// <summary>
@@ -125,7 +139,7 @@ namespace ArtCenterOnline.Server.Services
                 }
             }
 
-            // Những stat thừa (giáo viên không còn buổi trong tháng) → đưa về 0
+            // Những stat thừa (GV không còn buổi trong tháng) → đưa về 0
             foreach (var stat in existing)
             {
                 if (!dict.ContainsKey(stat.TeacherId))
