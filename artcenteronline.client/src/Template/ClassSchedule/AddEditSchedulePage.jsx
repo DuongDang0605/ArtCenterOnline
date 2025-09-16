@@ -284,7 +284,7 @@ export default function AddEditSchedulePage() {
                                                 );
                                             })}
                                         </select>
-                                        
+
                                     </div>
                                 </div>
 

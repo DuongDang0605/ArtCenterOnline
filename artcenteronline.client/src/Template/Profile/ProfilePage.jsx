@@ -71,7 +71,7 @@ export default function ProfilePage() {
         } finally {
             setSavingTeacher(false);
         }
-        
+
     };
     useEffect(() => {
         const load = async () => {
@@ -84,13 +84,13 @@ export default function ProfilePage() {
                     t?.phoneNumber ?? t?.PhoneNumber ?? "";
                 if (!tFullName) setTFullName(name);
                 if (!tPhone) setTPhone(phone);
-            // eslint-disable-next-line no-unused-vars
+                // eslint-disable-next-line no-unused-vars
             } catch (_e) {
                 /* ignore */
             }
         };
         load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isTeacher, myTeacherId]);
     // ===== Account (email + mật khẩu) =====
     const [aEmail, setAEmail] = useState(auth?.user?.email ?? auth?.user?.Email ?? "");

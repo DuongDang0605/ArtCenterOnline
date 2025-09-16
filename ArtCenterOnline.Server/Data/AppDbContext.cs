@@ -19,7 +19,7 @@ namespace ArtCenterOnline.Server.Data
         public DbSet<ClassStudent> ClassStudents { get; set; }
 
         public DbSet<ClassSchedule> ClassSchedules { get; set; }
-        public DbSet<ClassSession> ClassSessions { get; set; } 
+        public DbSet<ClassSession> ClassSessions { get; set; }
 
         public DbSet<Attendance> Attendances => Set<Attendance>();
         public DbSet<TeacherMonthlyStat> TeacherMonthlyStats => Set<TeacherMonthlyStat>();
@@ -41,8 +41,8 @@ namespace ArtCenterOnline.Server.Data
                 entity.Property(e => e.ClassName).HasMaxLength(100).IsRequired();
                 entity.Property(e => e.Branch).HasMaxLength(100).IsRequired();
                 entity.Property(e => e.Status).HasDefaultValue(1);
-                
-          
+
+
             });
 
             // User
@@ -184,7 +184,7 @@ namespace ArtCenterOnline.Server.Data
                 entity.HasIndex("TeacherId", "SessionDate")
                       .HasFilter("[TeacherId] IS NOT NULL");
             });
-          
+
 
             // 👉 NEW: ClassSession mapping
             modelBuilder.Entity<ClassSession>(entity =>

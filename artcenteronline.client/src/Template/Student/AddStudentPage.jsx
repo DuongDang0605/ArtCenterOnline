@@ -47,7 +47,7 @@ export default function AddStudentPage() {
 
     useEffect(() => {
         setNgayBatDauHocText(isoToDMY(form.ngayBatDauHoc));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const setField = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
