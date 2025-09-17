@@ -29,6 +29,25 @@ function shortTime(ts) {
     return ts || ""; // "HH:mm" từ server
 }
 
+function statusBadgeFor(now, it) {
+    // Ưu tiên theo attendance thực tế nếu có:
+    if (it.myAttendance === true) return { text: "Có mặt", className: "label label-success" };
+    if (it.myAttendance === false) return { text: "Nghỉ", className: "label label-danger" };
+
+    // Chưa có attendance => suy theo thời điểm hiện tại
+    // Ghép Date + Time để so sánh
+    const [y, m, d] = String(it.sessionDate).split("-").map(Number);
+    const [sh, sm] = String(it.startTime).split(":").map(Number);
+    const [eh, em] = String(it.endTime).split(":").map(Number);
+    const start = new Date(y, m - 1, d, sh, sm, 0);
+    const end = new Date(y, m - 1, d, eh, em, 0);
+
+    if (now < start) return { text: "Chưa học", className: "label label-default" };
+    // Nếu đã qua giờ kết thúc mà chưa có attendance → tạm xem là "Absent" cho tới khi GV chấm
+    if (now >= end) return { text: "Nghỉ", className: "label label-danger" };
+    // Đang trong khung giờ buổi học mà chưa có attendance → vẫn coi là "Chưa học" (chưa chấm)
+    return { text: "Chưa học", className: "label label-default" };
+}
 export default function StudentSelfCalendarPage() {
     const [month, setMonth] = useState(
         () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -208,6 +227,14 @@ export default function StudentSelfCalendarPage() {
                                                                         {it.teacherName ? ` · ${it.teacherName}` : ""}
                                                                         {it.teacherPhone ? ` · ${it.teacherPhone}` : ""}
                                                                     </div>
+                                                                    {!cancelled && (
+                                                                        <div style={{ marginTop: 2 }}>
+                                                                            {(() => {
+                                                                                const b = statusBadgeFor(today, it);
+                                                                                return <span className={b.className} style={{ lineHeight: 1 }}>{b.text}</span>;
+                                                                            })()}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })}
