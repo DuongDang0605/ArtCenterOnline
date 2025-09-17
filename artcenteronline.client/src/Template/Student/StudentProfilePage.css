@@ -72,42 +72,42 @@
 }
 /* Mã HV */
 .profile-form .input-group-addon .fa-id-badge {
-    color: #dd4b39;
+    color: #dd4b39 !important;
 }
 /* đỏ */
 
 /* Họ tên & Phụ huynh */
 .profile-form .input-group-addon .fa-user {
-    color: #3c8dbc;
+    color: #3c8dbc !important;
 }
 /* xanh dương */
 
 /* Điện thoại */
 .profile-form .input-group-addon .fa-phone {
-    color: #00a65a;
+    color: #00a65a !important;
 }
 /* xanh lá */
 
 /* Địa chỉ */
 .profile-form .input-group-addon .fa-map-marker {
-    color: #f39c12;
+    color: #f39c12 !important;
 }
 /* cam */
 
 /* Bắt đầu học (calendar) */
 .profile-form .input-group-addon .fa-calendar {
-    color: #605ca8;
+    color: #605ca8 !important;
 }
 /* tím */
 
 /* Trạng thái (info) */
 .profile-form .input-group-addon .fa-info-circle {
-    color: #00c0ef;
+    color: #00c0ef !important;
 }
 /* xanh ngọc */
 
 /* Số buổi đã học (check) */
 .profile-form .input-group-addon .fa-check-square-o {
-    color: #00a65a;
+    color: #00a65a !important;
 }
 /* xanh lá */

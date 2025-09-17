@@ -15,6 +15,7 @@ export default function StudentProfilePage() {
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState({ type: "", text: "" });
+    const [toast, setToast] = useState("");
 
     useEffect(() => {
         (async () => {
@@ -32,6 +33,12 @@ export default function StudentProfilePage() {
             }
         })();
     }, []);
+
+    useEffect(() => {
+               if (!toast) return;
+                const t = setTimeout(() => setToast(""), 4000);
+               return () => clearTimeout(t);
+            }, [toast]);
 
     function onChange(e) {
         const { name, value } = e.target;
@@ -68,7 +75,8 @@ export default function StudentProfilePage() {
             });
             setMe(updated);
             setEditing(false);
-            setMsg({ type: "ok", text: "Cập nhật thành công!" });
+            setMsg({ type: "", text: "" });
+             setToast("Cập nhật hồ sơ thành công.");
         } catch (e) {
             setMsg({
                 type: "warn",
@@ -140,6 +148,31 @@ export default function StudentProfilePage() {
 
     return (
         <section className="content profile-form">
+            {toast && (
+                              <div
+className="alert alert-success"
+                              style={{
+ position: "fixed",
+                                    top: 70,
+                                    right: 16,
+                                    zIndex: 9999,
+                                   maxWidth: 420,
+                                    boxShadow: "0 4px 12px rgba(0,0,0,.15)",
+                    }}
+               >
+                                <button
+                        type="button"
+                                    className="close"
+                                    onClick={() => setToast("")}
+                                    aria-label="Close"
+                                    style={{ marginLeft: 8 }}
+                    >
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+         { toast }
+                       </div >
+                        )
+}
             <div className="box box-primary">
                 {/* HEADER (bỏ narrow để bám trái) */}
                 <div
@@ -180,14 +213,11 @@ export default function StudentProfilePage() {
 
                 {/* BODY (bỏ narrow để bám trái; bỏ quick-stats) */}
                 <div className="box-body">
-                    {msg.text ? (
-                        <div
-                            className={`callout ${msg.type === "ok" ? "callout-success" : "callout-warning"}`}
-                            style={{ marginTop: 0, marginBottom: 16 }}
-                        >
-                            <p style={{ margin: 0 }}>{msg.text}</p>
-                        </div>
-                    ) : null}
+                    {msg.text && msg.type !== "ok" ? (
+                                                <div className="callout callout-warning" style={{ marginTop: 0, marginBottom: 16 }}>
+                                                        <p style={{ margin: 0 }}>{msg.text}</p>
+                                                   </div>
+                                           ) : null}
 
                     {/* VIEW MODE: tất cả trường sát trái, cùng layout; Status & Số buổi đã học ở cuối */}
                     {!editing ? (

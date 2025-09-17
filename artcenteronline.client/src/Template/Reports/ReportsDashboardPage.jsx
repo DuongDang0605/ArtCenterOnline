@@ -146,8 +146,8 @@ export default function ReportsDashboardPage() {
             data: {
                 labels,
                 datasets: [
-                    { label: "Teacher", data: tData, backgroundColor: "#17a2b8" },
-                    { label: "Student", data: sData, backgroundColor: "#6f42c1" },
+                    { label: "Giáo viên", data: tData, backgroundColor: "#17a2b8" },
+                    { label: "Học sinh", data: sData, backgroundColor: "#6f42c1" },
                 ],
             },
             options: {
