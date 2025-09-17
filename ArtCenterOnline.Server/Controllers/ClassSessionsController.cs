@@ -653,7 +653,13 @@ namespace ArtCenterOnline.Server.Controllers
                     status = (int)s.Status,
                     teacherId = s.TeacherId,
                     teacherName = s.Teacher != null ? s.Teacher.TeacherName : null,
-                    teacherPhone = s.Teacher != null ? s.Teacher.PhoneNumber : null // mở rộng theo nhu cầu
+                    teacherPhone = s.Teacher != null ? s.Teacher.PhoneNumber : null, // mở rộng theo nhu cầu
+                                                                                     // NEW: trạng thái điểm danh của chính học sinh này (nullable)
+                    myAttendance = _db.Attendances
+            .Where(a => a.SessionId == s.SessionId && a.StudentId == studentId)
+            .OrderByDescending(a => a.TakenAtUtc)
+            .Select(a => (bool?)a.IsPresent)
+            .FirstOrDefault()
                 })
                 .ToListAsync(ct);
 

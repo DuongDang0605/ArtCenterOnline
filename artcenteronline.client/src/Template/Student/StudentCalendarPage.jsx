@@ -28,7 +28,21 @@ function isSameDate(a, b) {
 function shortTime(ts) {
     return ts || "";
 }
-
+// Thêm helper hiển thị trạng thái điểm danh (nếu file này chưa có)
+function statusBadgeFor(now, it) {
+    // Ưu tiên attendance thực tế:
+    if (it.myAttendance === true) return { text: "Có mặt", className: "label label-success" };
+    if (it.myAttendance === false) return { text: "Nghỉ", className: "label label-danger" };
+    // Suy theo thời điểm hiện tại
+    const [y, m, d] = String(it.sessionDate).split("-").map(Number);
+    const [sh, sm] = String(it.startTime).split(":").map(Number);
+    const [eh, em] = String(it.endTime).split(":").map(Number);
+    const start = new Date(y, m - 1, d, sh, sm, 0);
+    const end = new Date(y, m - 1, d, eh, em, 0);
+    if (now < start) return { text: "Chưa học", className: "label label-default" };
+    if (now >= end) return { text: "Nghỉ", className: "label label-danger" };
+    return { text: "Chưa học", className: "label label-default" };
+}
 function getStudentId(st) {
     return st?.studentId ?? st?.StudentId ?? st?.id;
 }
@@ -133,6 +147,8 @@ export default function StudentCalendarPage() {
                         endTime: s.endTime,
                         teacherName: s.teacherName || null,
                         status: s.status,
+                        myAttendance: s.myAttendance,
+                        sessionDate: s.sessionDate,
                     });
                 }
                 if (!alive) return;
@@ -385,32 +401,40 @@ export default function StudentCalendarPage() {
                                                                     <span className="text-muted small">—</span>
                                                                 )}
                                                                 {itemsSorted.map((it, idx) => {
-                                                                    const isCancelled = Number(it.status) === 2;
+                                                                      const cancelled = Number(it.status) === 2;
                                                                     return (
                                                                         <div
                                                                             key={idx}
                                                                             className="small"
                                                                             style={{
-                                                                                borderLeft: `3px solid ${isCancelled ? "#dd4b39" : "#3c8dbc"
+                                                                                borderLeft: `3px solid ${cancelled ? "#dd4b39" : "#3c8dbc"
                                                                                     }`, // xanh dương như MonthlyCalendar
                                                                                 paddingLeft: 6,
-                                                                                opacity: isCancelled ? 0.7 : 1,
+                                                                                opacity: cancelled ? 0.7 : 1,
                                                                             }}
-                                                                            title={isCancelled ? "Buổi đã hủy" : ""}
+                                                                            title={cancelled ? "Buổi đã hủy" : ""}
                                                                         >
                                                                             <div style={{ fontWeight: 600 }}>
                                                                                 {it.className}
-                                                                                {isCancelled ? " (Hủy)" : ""}
+                                                                                {cancelled ? " (Hủy)" : ""}
                                                                             </div>
                                                                             <div
                                                                                 style={{
                                                                                     opacity: 0.85,
-                                                                                    textDecoration: isCancelled ? "line-through" : "none",
+                                                                                    textDecoration: cancelled ? "line-through" : "none",
                                                                                 }}
                                                                             >
                                                                                 {shortTime(it.startTime)}–{shortTime(it.endTime)}
                                                                                 {it.teacherName ? ` · ${it.teacherName}` : ""}
                                                                             </div>
+                                                                            {!cancelled && (
+                                                                                <div style={{ marginTop: 2 }}>
+                                                                                    {(() => {
+                                                                                        const b = statusBadgeFor(today, it);
+                                                                                        return <span className={b.className} style={{ lineHeight: 1 }}>{b.text}</span>;
+                                                                                    })()}
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     );
                                                                 })}
