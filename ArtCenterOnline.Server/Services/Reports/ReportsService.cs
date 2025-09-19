@@ -16,6 +16,9 @@ namespace ArtCenterOnline.Server.Services.Reports
         private readonly AppDbContext _ctx;
         public ReportsService(AppDbContext ctx) => _ctx = ctx;
 
+        // =======================
+        //  A) TỔNG QUAN THÁNG
+        // =======================
         public async Task<MonthlyOverviewDto> GetMonthlyOverviewAsync(DateOnly month, CancellationToken ct = default)
         {
             // Mốc thời gian tháng này / trước (DateOnly để so với cột DateOnly trong DB)
@@ -35,39 +38,28 @@ namespace ArtCenterOnline.Server.Services.Reports
                 s => s.ngayBatDauHoc >= doPrevFirst && s.ngayBatDauHoc < doFirst, ct);
 
             double newDelta = CalcDeltaPct(newPrev, newThis);
+
             // ===== 2) Số buổi / buổi hủy trong tháng (this & prev) =====
             var today = DateOnly.FromDateTime(DateTime.Today);
-
-            // Mốc kết thúc cho "tháng này" chỉ tính đến hôm nay
             DateOnly endThis;
             if (doFirst.Year == today.Year && doFirst.Month == today.Month)
-            {
-                endThis = today.AddDays(1);          // bao gồm hôm nay (dùng điều kiện < endThis)
-            }
+                endThis = today.AddDays(1);           // bao gồm hôm nay
             else if (doFirst > today)
-            {
-                endThis = doFirst;                   // tháng tương lai -> 0
-            }
+                endThis = doFirst;                    // tháng tương lai -> 0
             else
-            {
-                endThis = doNextFirst;               // tháng quá khứ -> trọn tháng
-            }
+                endThis = doNextFirst;                // tháng quá khứ -> trọn tháng
 
-            // Tổng số buổi (mọi trạng thái) "tính đến hôm nay" trong tháng này – làm mẫu số cho cancelRate
             int sessionsTotalThisMonth = await _ctx.ClassSessions.CountAsync(
-                s => s.SessionDate >= doFirst && s.SessionDate < endThis, ct);
+                 s => s.SessionDate >= doFirst && s.SessionDate < doNextFirst, ct);
 
-            // ĐÃ HOÀN THÀNH trong tháng này (tính đến hôm nay)
             int sessionsThisMonth = await _ctx.ClassSessions.CountAsync(
                 s => s.SessionDate >= doFirst && s.SessionDate < endThis
                   && s.Status == SessionStatus.Completed, ct);
 
-            // ĐÃ HỦY trong tháng này (tính đến hôm nay)
             int sessionsCanceled = await _ctx.ClassSessions.CountAsync(
                 s => s.SessionDate >= doFirst && s.SessionDate < endThis
                   && s.Status == SessionStatus.Cancelled, ct);
 
-            // Tháng trước: giữ nguyên tính trọn tháng
             int sessionsPrev = await _ctx.ClassSessions.CountAsync(
                 s => s.SessionDate >= doPrevFirst && s.SessionDate < doFirst
                   && s.Status == SessionStatus.Completed, ct);
@@ -76,13 +68,11 @@ namespace ArtCenterOnline.Server.Services.Reports
                 s => s.SessionDate >= doPrevFirst && s.SessionDate < doFirst
                   && s.Status == SessionStatus.Cancelled, ct);
 
-            // Tỷ lệ hủy = số buổi hủy / tổng số buổi (mọi trạng thái) "tính đến hôm nay"
             double cancelRate = sessionsTotalThisMonth == 0
                 ? 0
                 : Math.Round(sessionsCanceled * 100.0 / sessionsTotalThisMonth, 2);
 
-
-            // ===== 3) Attendance: kéo về bộ nhớ để tính an toàn =====
+            // ===== 3) Attendance =====
             var attThis = await (
                 from a in _ctx.Attendances
                 join s in _ctx.ClassSessions on a.SessionId equals s.SessionId
@@ -130,33 +120,11 @@ namespace ArtCenterOnline.Server.Services.Reports
                 .ToList();
 
             // ===== 5) Top lớp / giáo viên theo tỉ lệ điểm danh =====
-            // --- Chốt mốc "hôm nay" (nếu SessionDate là DateTime) ---
-          
-
-
-            // Nếu SessionDate là DateOnly, dùng:
-            // var today = DateOnly.FromDateTime(DateTime.Today);
-
-            // Lấy dữ liệu điểm danh của các buổi HÔM NAY, gắn theo lớp & giáo viên của BUỔI
-            var attToday = await (
-                 from a in _ctx.Attendances
-                 join s in _ctx.ClassSessions on a.SessionId equals s.SessionId
-                 where s.SessionDate == today               // so sánh DateOnly với DateOnly
-                 && s.Status != SessionStatus.Cancelled
-                    select new
-                            {
-                                 ClassID = s.ClassID,
-                                 TeacherId = s.TeacherId,               // GV của buổi (Admin điểm hộ vẫn tính cho GV này)
-                                    IsPresent = a.IsPresent
-                                }
-                        ).ToListAsync(ct);
-
-            // ===== 5) Top lớp / giáo viên theo tỉ lệ điểm danh (THEO THÁNG) =====
             var attRange = await (
                 from a in _ctx.Attendances
                 join s in _ctx.ClassSessions on a.SessionId equals s.SessionId
                 where s.SessionDate >= doFirst && s.SessionDate < endThis
-                      && s.Status == SessionStatus.Completed // chỉ buổi đã diễn ra
+                      && s.Status == SessionStatus.Completed
                 select new { a.IsPresent, s.ClassID, s.TeacherId }
             ).ToListAsync(ct);
 
@@ -205,12 +173,6 @@ namespace ArtCenterOnline.Server.Services.Reports
                 Value = Math.Round(x.present * 100.0 / x.total, 1)
             }).ToList();
 
-
-
-            // ===== 6) LeftStudents: tắt tạm theo yêu cầu =====
-            int leftThis = 0, leftPrev = 0;
-            double leftDelta = 0;
-
             // ===== Kết quả =====
             return new MonthlyOverviewDto
             {
@@ -220,9 +182,9 @@ namespace ArtCenterOnline.Server.Services.Reports
                 NewStudentsPrev = newPrev,
                 NewStudentsDeltaPct = Math.Round(newDelta, 1),
 
-                LeftStudents = leftThis,
-                LeftStudentsPrev = leftPrev,
-                LeftStudentsDeltaPct = Math.Round(leftDelta, 1),
+                LeftStudents = 0,
+                LeftStudentsPrev = 0,
+                LeftStudentsDeltaPct = 0,
 
                 AttendanceRate = Math.Round(attendanceThis, 2),
                 AttendanceRatePrev = Math.Round(attendancePrev, 2),
@@ -232,7 +194,7 @@ namespace ArtCenterOnline.Server.Services.Reports
                 SessionsCanceled = sessionsCanceled,
                 SessionsThisMonthPrev = sessionsPrev,
                 SessionsCanceledPrev = sessionsCanceledPrev,
-
+                SessionsTotalThisMonth = sessionsTotalThisMonth,
                 CancelRate = cancelRate,
 
                 AttendanceSeries = attendanceSeries,
@@ -242,13 +204,15 @@ namespace ArtCenterOnline.Server.Services.Reports
             };
         }
 
+        // =========================================
+        //  B) TỈ LỆ ĐIỂM DANH THEO HỌC SINH (THÁNG)
+        // =========================================
         public async Task<List<StudentAttendanceRateDto>> GetStudentAttendanceRatesAsync(
             DateOnly month, int? classId = null, CancellationToken ct = default)
         {
             var first = new DateOnly(month.Year, month.Month, 1);
             var next = first.AddMonths(1);
 
-            // Lấy attendance của các buổi trong tháng (lọc theo class nếu có)
             var baseQuery =
                 from a in _ctx.Attendances
                 join s in _ctx.ClassSessions on a.SessionId equals s.SessionId
@@ -258,7 +222,6 @@ namespace ArtCenterOnline.Server.Services.Reports
             if (classId.HasValue && classId.Value > 0)
                 baseQuery = baseQuery.Where(x => x.ClassID == classId.Value);
 
-            // Gom theo học sinh: total = tất cả attendance, present = IsPresent = true
             var agg = await baseQuery
                 .GroupBy(x => x.StudentId)
                 .Select(g => new
@@ -272,14 +235,12 @@ namespace ArtCenterOnline.Server.Services.Reports
 
             if (agg.Count == 0) return new List<StudentAttendanceRateDto>();
 
-            // Lấy tên học sinh
             var ids = agg.Select(x => x.StudentId).Distinct().ToList();
             var nameMap = await _ctx.Students
                 .Where(st => ids.Contains(st.StudentId))
                 .Select(st => new { st.StudentId, st.StudentName })
                 .ToDictionaryAsync(x => x.StudentId, x => x.StudentName, ct);
 
-            // Map ra DTO, sắp xếp theo Rate giảm dần
             return agg
                 .Select(x =>
                 {
@@ -299,7 +260,54 @@ namespace ArtCenterOnline.Server.Services.Reports
                 .ToList();
         }
 
-        // Helper: % thay đổi so với tháng trước
+        // ===================================================
+        //  C) DANH SÁCH HỌC VIÊN/LỚP MỚI THEO KHOẢNG NGÀY
+        //  (KHỚP IReportsService)
+        // ===================================================
+
+        public async Task<List<NewStudentItemDto>> GetNewStudentsInRangeAsync(
+            DateOnly from, DateOnly to, CancellationToken ct = default)
+        {
+            // StudentInfo schema: PhoneNumber, ngayBatDauHoc (DateOnly)
+            //                     (không đụng đến MainTeacher) 
+            //                     -> lọc [from, to)
+            //                     -> sắp xếp giảm dần theo ngày bắt đầu học
+            return await _ctx.Students
+                .Where(s => s.ngayBatDauHoc >= from && s.ngayBatDauHoc < to)
+                .OrderByDescending(s => s.ngayBatDauHoc)
+                .Select(s => new NewStudentItemDto
+                {
+                    StudentId = s.StudentId,
+                    StudentName = s.StudentName,
+                    StartDate = s.ngayBatDauHoc,
+                    Phone = s.PhoneNumber
+                })
+                .ToListAsync(ct);
+        }
+
+        public async Task<List<NewClassItemDto>> GetClassesCreatedInRangeAsync(
+            DateOnly from, DateOnly to, CancellationToken ct = default)
+        {
+            // ClassInfo schema: DayStart (DateTime? nullable), Branch, Status
+            //                   -> lọc [from, to) theo DayStart
+            var fromDt = from.ToDateTime(TimeOnly.MinValue);
+            var toDt = to.ToDateTime(TimeOnly.MinValue);
+
+            return await _ctx.Classes
+                .Where(c => c.DayStart != null && c.DayStart.Value >= fromDt && c.DayStart.Value < toDt)
+                .OrderByDescending(c => c.DayStart)
+                .Select(c => new NewClassItemDto
+                {
+                    ClassID = c.ClassID,
+                    ClassName = c.ClassName,
+                    DayStart = c.DayStart!.Value,
+                    Branch = c.Branch,
+                    Status = c.Status
+                })
+                .ToListAsync(ct);
+        }
+
+        // Helper
         private static double CalcDeltaPct(int prev, int cur)
             => prev <= 0 ? (cur > 0 ? 100.0 : 0.0) : (cur - prev) * 100.0 / prev;
     }

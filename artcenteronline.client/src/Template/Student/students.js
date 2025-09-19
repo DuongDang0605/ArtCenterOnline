@@ -56,3 +56,28 @@ export async function updateMyProfile(payload) {
     const { data } = await http.put("/Students/me", payload);
     return data; // trả về bản hồ sơ sau cập nhật
 }
+// --- Import Excel (server-parse) ---
+export async function importStudentsExcel(file) {
+    const form = new FormData();
+    form.append("file", file);
+    const { data } = await http.post("/Students/import/excel", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data; // { stagingId, items } hoặc { errors: [{row, message}, ...] }
+}
+
+export async function commitImport(stagingId) {
+    const { data } = await http.post(`/Students/import/${encodeURIComponent(stagingId)}/commit`);
+    return data; // { inserted, skipped? }
+}
+
+export async function rollbackImport(stagingId) {
+    await http.delete(`/Students/import/${encodeURIComponent(stagingId)}`);
+    return true;
+}
+// Tải file mẫu (giữ header Authorization)
+export async function downloadImportTemplate() {
+    // http là axios instance đã cấu hình baseURL '/api' + token
+    const res = await http.get("/Students/import/template", { responseType: "blob" });
+    return res; // cần headers để lấy filename
+}

@@ -7,6 +7,7 @@ using ArtCenterOnline.Server.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace ArtCenterOnline.Server.Controllers
 {
@@ -17,6 +18,12 @@ namespace ArtCenterOnline.Server.Controllers
     {
         private readonly AppDbContext _db;
         public UsersController(AppDbContext db) => _db = db;
+
+        private static bool IsValidEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return false;
+            return Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+\.[^\s@]+$");
+        }
 
         // ===== Legacy DTO (giữ nguyên cho FE) =====
         public class LegacyUserDto
@@ -104,6 +111,8 @@ namespace ArtCenterOnline.Server.Controllers
             var email = (input.UserEmail ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(email)) return BadRequest("Email không được để trống.");
 
+            if (!IsValidEmail(email)) return BadRequest("Email không hợp lệ.");
+
             var exists = await _db.Users.AnyAsync(u => u.Email == email, ct);
             if (exists) return Conflict($"Email '{email}' đã tồn tại.");
 
@@ -148,15 +157,7 @@ namespace ArtCenterOnline.Server.Controllers
             var user = await _db.Users.FindAsync(new object[] { id }, ct);
             if (user == null) return NotFound();
 
-            // Đổi email (kiểm tra trùng)
-            var newEmail = (input.UserEmail ?? "").Trim();
-            if (!string.IsNullOrEmpty(newEmail) &&
-                !newEmail.Equals(user.Email, StringComparison.OrdinalIgnoreCase))
-            {
-                var taken = await _db.Users.AnyAsync(u => u.Email == newEmail && u.UserId != id, ct);
-                if (taken) return Conflict(new { message = "Email đã tồn tại." });
-                user.Email = newEmail;
-            }
+        
 
             // Đổi mật khẩu (nếu nhập)
             if (!string.IsNullOrWhiteSpace(input.Password))

@@ -43,8 +43,12 @@ builder.Services.Configure<AttendancePolicyOptions>(builder.Configuration.GetSec
 builder.Services.AddScoped<IAttendanceGuard, AttendanceGuard>();
 builder.Services.AddScoped<ISessionAccountingService, SessionAccountingService>();
 
+// Program.cs
 builder.Services.AddScoped<ArtCenterOnline.Server.Services.Reports.IReportsService,
                            ArtCenterOnline.Server.Services.Reports.ReportsService>();
+
+
+
 builder.Services.AddScoped<ArtCenterOnline.Server.Services.Reports.IAttendanceExportService,
                            ArtCenterOnline.Server.Services.Reports.AttendanceExportService>();
 builder.Services.AddScoped<ArtCenterOnline.Server.Services.ITeacherScheduleValidator,

@@ -39,3 +39,8 @@ export const exportAttendanceMatrix = ({ classId, from, to, includeCanceled = tr
         responseType: "blob",
     });
 };
+export const getNewStudents = ({ from, to }) =>
+    http.get("/Reports/students/new", { params: { from, to } }).then(r => r.data);
+
+export const getNewClasses = ({ from, to }) =>
+    http.get("/Reports/classes/created", { params: { from, to } }).then(r => r.data);

@@ -8,6 +8,7 @@ const AUTO_DISMISS = 5000;
 function useToast() {
     const [msg, setMsg] = useState("");
     const [remaining, setRemaining] = useState(0);
+
     useEffect(() => {
         if (!msg) return;
         const start = Date.now();
@@ -18,10 +19,14 @@ function useToast() {
         }, 100);
         return () => clearInterval(iv);
     }, [msg]);
+
     return {
         msg,
         remaining,
-        show: (m) => { setMsg(m || "Đã xảy ra lỗi."); setRemaining(AUTO_DISMISS); },
+        show: (m) => {
+            setMsg(m || "Đã xảy ra lỗi.");
+            setRemaining(AUTO_DISMISS);
+        },
         hide: () => setMsg(""),
     };
 }
@@ -53,14 +58,28 @@ export default function AddTeacherPage() {
 
     const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+    // ===== Realtime validation =====
+    const email = (form.Email || "").trim();
+    const emailInvalid = !!email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    const pw = String(form.Password || "");
+    const pwTooShort = pw.length > 0 && pw.length < 6;
+
+    function fgClass(error, success) {
+        if (error) return "form-group has-error";
+        if (success) return "form-group has-success";
+        return "form-group";
+    }
+
     function validate() {
-        if (!form.Email.trim()) return "Vui lòng nhập Email.";
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.Email.trim())) return "Email không hợp lệ.";
-        if (!form.Password || String(form.Password).length < 6) return "Mật khẩu phải ít nhất 6 ký tự.";
-        if (!form.TeacherName.trim()) return "Vui lòng nhập Tên giáo viên.";
-        if (!form.PhoneNumber.trim()) return "Vui lòng nhập Số điện thoại.";
+        if (!email) return "Vui lòng nhập Email.";
+        if (emailInvalid) return "Email không hợp lệ.";
+        if (!pw || pw.length < 6) return "Mật khẩu phải ít nhất 6 ký tự.";
+        if (!String(form.TeacherName || "").trim()) return "Vui lòng nhập Tên giáo viên.";
+        if (!String(form.PhoneNumber || "").trim()) return "Vui lòng nhập Số điện thoại.";
         return "";
     }
+
+    const formInvalid = !email || emailInvalid || !pw || pwTooShort || !String(form.TeacherName || "").trim() || !String(form.PhoneNumber || "").trim();
 
     async function onSubmit(e) {
         e.preventDefault();
@@ -70,16 +89,15 @@ export default function AddTeacherPage() {
         setSaving(true);
         try {
             await createTeacher({
-                Email: form.Email.trim(),
+                Email: email,
                 Password: form.Password,
                 TeacherName: form.TeacherName.trim(),
                 PhoneNumber: form.PhoneNumber.trim(),
                 status: Number(form.status),
             });
-            // Không hiện tài khoản/mật khẩu — chỉ báo success ở Page
             navigate("/teachers", { state: { notice: "Đã thêm giáo viên mới." } });
         } catch (e) {
-            toast.show(extractErr(e));
+            toast.show(extractErr(e)); // 409 trùng email sẽ hiển thị ở đây
         } finally {
             setSaving(false);
         }
@@ -90,8 +108,14 @@ export default function AddTeacherPage() {
             <section className="content-header">
                 <h1>THÊM GIÁO VIÊN</h1>
                 <ol className="breadcrumb">
-                    <li><Link to="/"><i className="fa fa-dashboard" /> Trang chủ</Link></li>
-                    <li><Link to="/teachers">Giáo viên</Link></li>
+                    <li>
+                        <Link to="/">
+                            <i className="fa fa-dashboard" /> Trang chủ
+                        </Link>
+                    </li>
+                    <li>
+                        <Link to="/teachers">Giáo viên</Link>
+                    </li>
                     <li className="active">Thêm mới</li>
                 </ol>
             </section>
@@ -102,43 +126,83 @@ export default function AddTeacherPage() {
                         <div className="box box-primary">
                             <div className="box-body">
                                 <form onSubmit={onSubmit}>
-                                    <div className="form-group">
+                                    <div className={fgClass(email && emailInvalid, email && !emailInvalid)}>
                                         <label htmlFor="Email">Email</label>
-                                        <input id="Email" className="form-control" type="email"
-                                            value={form.Email} onChange={(e) => setField("Email", e.target.value)} required />
+                                        <input
+                                            id="Email"
+                                            className="form-control"
+                                            type="email"
+                                            value={form.Email}
+                                            onChange={(e) => setField("Email", e.target.value)}
+                                            required
+                                        />
+                                        {email && emailInvalid && (
+                                            <p className="help-block">Email không hợp lệ.</p>
+                                        )}
+                                        {email && !emailInvalid && (
+                                            <p className="help-block text-green">Email hợp lệ.</p>
+                                        )}
                                     </div>
 
-                                    <div className="form-group">
+                                    <div className={fgClass(pwTooShort, !!pw && !pwTooShort)}>
                                         <label htmlFor="Password">Mật khẩu</label>
-                                        <input id="Password" className="form-control" type="password"
-                                            value={form.Password} onChange={(e) => setField("Password", e.target.value)} required />
+                                        <input
+                                            id="Password"
+                                            className="form-control"
+                                            type="password"
+                                            value={form.Password}
+                                            onChange={(e) => setField("Password", e.target.value)}
+                                            placeholder="Tối thiểu 6 ký tự"
+                                            required
+                                        />
+                                        {pwTooShort && (
+                                            <p className="help-block">Mật khẩu phải ít nhất 6 ký tự.</p>
+                                        )}
                                     </div>
 
-                                    <div className="form-group">
+                                    <div className={fgClass(!String(form.TeacherName || "").trim() && form.TeacherName !== "", !!String(form.TeacherName || "").trim())}>
                                         <label htmlFor="TeacherName">Tên giáo viên</label>
-                                        <input id="TeacherName" className="form-control" type="text"
-                                            value={form.TeacherName} onChange={(e) => setField("TeacherName", e.target.value)} required />
+                                        <input
+                                            id="TeacherName"
+                                            className="form-control"
+                                            type="text"
+                                            value={form.TeacherName}
+                                            onChange={(e) => setField("TeacherName", e.target.value)}
+                                            required
+                                        />
                                     </div>
 
-                                    <div className="form-group">
+                                    <div className={fgClass(!String(form.PhoneNumber || "").trim() && form.PhoneNumber !== "", !!String(form.PhoneNumber || "").trim())}>
                                         <label htmlFor="PhoneNumber">Số điện thoại</label>
-                                        <input id="PhoneNumber" className="form-control" type="tel"
-                                            value={form.PhoneNumber} onChange={(e) => setField("PhoneNumber", e.target.value)} required />
+                                        <input
+                                            id="PhoneNumber"
+                                            className="form-control"
+                                            type="tel"
+                                            value={form.PhoneNumber}
+                                            onChange={(e) => setField("PhoneNumber", e.target.value)}
+                                            required
+                                        />
                                     </div>
 
                                     <div className="form-group">
                                         <label htmlFor="status">Trạng thái</label>
-                                        <select id="status" className="form-control"
-                                            value={form.status} onChange={(e) => setField("status", Number(e.target.value))}>
+                                        <select
+                                            id="status"
+                                            className="form-control"
+                                            value={form.status}
+                                            onChange={(e) => setField("status", Number(e.target.value))}
+                                        >
                                             <option value={1}>Đang dạy</option>
                                             <option value={0}>Ngừng dạy</option>
                                         </select>
                                     </div>
 
-                                    <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    <button type="submit" className="btn btn-primary" disabled={saving || formInvalid}>
                                         {saving ? "Đang tạo..." : "Tạo giáo viên"}
                                     </button>{" "}
-                                    <Link to="/teachers" className="btn btn-default">Hủy</Link>
+                                    <Link to="/teachers" className="btn btn-default">
+                                        Hủy
+                                    </Link>
                                 </form>
                             </div>
                         </div>
@@ -152,16 +216,22 @@ export default function AddTeacherPage() {
                     className="alert alert-danger"
                     style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
                 >
-                    <button type="button" className="close" onClick={toast.hide}><span>&times;</span></button>
+                    <button type="button" className="close" onClick={toast.hide}>
+                        <span>&times;</span>
+                    </button>
                     {toast.msg}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s</div>
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                        Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s
+                    </div>
                     <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div style={{
-                            height: "100%",
-                            width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
-                            transition: "width 100ms linear",
-                            background: "#a94442"
-                        }} />
+                        <div
+                            style={{
+                                height: "100%",
+                                width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
+                                transition: "width 100ms linear",
+                                background: "#a94442",
+                            }}
+                        />
                     </div>
                 </div>
             )}

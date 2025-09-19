@@ -48,7 +48,6 @@ export default function ClassSchedulesPage() {
 
     useEffect(() => {
         load();
-        // clear route state.notice sau khi hiển thị 1 lần
         if (location.state?.notice) {
             setTimeout(() => {
                 navigate(".", { replace: true, state: {} });
@@ -57,7 +56,6 @@ export default function ClassSchedulesPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [classId]);
 
-    // Tự ẩn thông báo thành công sau 4s
     useEffect(() => {
         if (!notice) return;
         const t = setTimeout(() => setNotice(""), 4000);
@@ -179,6 +177,8 @@ export default function ClassSchedulesPage() {
         };
     }, []);
 
+    const classNameHeader = rows[0]?.className || `#${classId}`;
+
     if (loading) {
         return (
             <section className="content">
@@ -213,7 +213,7 @@ export default function ClassSchedulesPage() {
 
             {/* KHÔNG bọc thêm .content-wrapper */}
             <section className="content-header">
-                <h1>Lịch học của lớp #{classId}</h1>
+                <h1>Lịch học của lớp {classNameHeader}</h1>
                 <ol className="breadcrumb">
                     <li><Link to="/">Trang chủ</Link></li>
                     <li className="active">Lịch học</li>
@@ -232,7 +232,6 @@ export default function ClassSchedulesPage() {
                             Quay lại
                         </Link>
                     </div>
-
 
                     <div className="box-body table-responsive">
                         <table ref={tableRef} className="table table-hover" style={{ width: "100%" }}>

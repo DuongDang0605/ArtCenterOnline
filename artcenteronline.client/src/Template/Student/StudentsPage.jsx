@@ -15,11 +15,11 @@ export default function StudentsPage() {
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState(null);
 
-    // === Toast thành công giống ClassSchedulesPage ===
+    // === Toast thành công giống các trang khác ===
     const [notice, setNotice] = useState(location.state?.notice || "");
     useEffect(() => {
         if (location.state?.notice) {
-            // clear route state sau một tick (y như bên schedule)
+            // clear route state để F5 không lặp lại
             setTimeout(() => {
                 navigate(".", { replace: true, state: {} });
             }, 0);
@@ -30,16 +30,19 @@ export default function StudentsPage() {
         if (!notice) return;
         const t = setTimeout(() => setNotice(""), 4000);
         return () => clearTimeout(t);
-    }, [notice]); // :contentReference[oaicite:3]{index=3}
+    }, [notice]);
 
     const tableRef = useRef(null);
     const dtRef = useRef(null);
 
-    // Chuẩn hóa từng item từ API
+    // Chuẩn hóa từng item từ API (hỗ trợ nhiều key khác nhau)
     const normalizeItem = (x, i) => {
         const pick = (...keys) => keys.find((k) => x?.[k] !== undefined) ?? null;
 
         const id = x[pick("studentId", "StudentId", "studentID", "StudentID", "id")] ?? i;
+        const userId = x[pick("userId", "UserId")] ?? null;
+        const email = x[pick("userEmail", "UserEmail", "email")] ?? "";
+
         const name = x[pick("studentName", "StudentName", "name")];
         const parent = x[pick("parentName", "ParentName")];
         const phone = x[pick("phoneNumber", "PhoneNumber", "PhoneNumer")];
@@ -77,6 +80,8 @@ export default function StudentsPage() {
 
         return {
             id,
+            userId,
+            email,
             name: name ?? "",
             parent: parent ?? "",
             phone: phone ?? "",
@@ -107,7 +112,7 @@ export default function StudentsPage() {
         return () => { alive = false; };
     }, []);
 
-    // Init DataTable (giữ nguyên)
+    // Init DataTable
     useEffect(() => {
         if (loading || err) return;
 
@@ -146,10 +151,11 @@ export default function StudentsPage() {
                 aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
-                { targets: 0, width: 80 },
-                { targets: 6, width: 120 },
-                { targets: 7, width: 160 },
-                { targets: 8, width: 120 },
+                { targets: 0, width: 80 },   // ID
+                { targets: 1, width: 200 },  // User Email
+                { targets: 6, width: 120 },  // Số buổi đã học
+                { targets: 7, width: 120 },  // Trạng thái
+                { targets: 8, width: 200 },  // Hành động
             ],
         });
 
@@ -214,6 +220,7 @@ export default function StudentsPage() {
                                     <thead>
                                         <tr>
                                             <th>ID</th>
+                                            <th>User Email</th>
                                             <th>Tên học viên</th>
                                             <th>Tên phụ huynh</th>
                                             <th>Số điện thoại</th>
@@ -229,6 +236,7 @@ export default function StudentsPage() {
                                         {rows.map((r) => (
                                             <tr key={r.id}>
                                                 <td>{r.id}</td>
+                                                <td>{r.email}</td>
                                                 <td>{r.name}</td>
                                                 <td>{r.parent}</td>
                                                 <td>{r.phone}</td>
@@ -242,9 +250,18 @@ export default function StudentsPage() {
                                                 </td>
                                                 <td>
                                                     {isAdmin ? (
-                                                        <Link to={`/students/${r.id}/edit`} className="btn btn-xs btn-primary">
-                                                            <i className="fa fa-edit" /> Cập nhật
-                                                        </Link>
+                                                        <>
+                                                            <Link to={`/students/${r.id}/edit`} className="btn btn-xs btn-primary">
+                                                                <i className="fa fa-edit" /> Cập nhật
+                                                            </Link>{" "}
+                                                            {r.userId ? (
+                                                                <Link to={`/users/${r.userId}/edit`} className="btn btn-xs btn-info">
+                                                                    <i className="fa fa-user" /> Sửa User
+                                                                </Link>
+                                                            ) : (
+                                                                <span className="text-muted">Không có User</span>
+                                                            )}
+                                                        </>
                                                     ) : (
                                                         <span className="text-muted">—</span>
                                                     )}
