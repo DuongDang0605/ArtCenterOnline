@@ -37,6 +37,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             public int ScheduleId { get; set; }
             public int ClassID { get; set; }
+            public string? ClassName { get; set; }   // <-- thêm
             public int DayOfWeek { get; set; } // 0..6
             public string StartTime { get; set; } = "00:00:00";
             public string EndTime { get; set; } = "00:00:00";
@@ -81,6 +82,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             ScheduleId = x.ScheduleId,
             ClassID = x.ClassID,
+            ClassName = x.Class != null ? x.Class.ClassName : null, // <-- map tên lớp
             DayOfWeek = (int)x.DayOfWeek,
             StartTime = x.StartTime.ToString(@"hh\:mm\:ss"),
             EndTime = x.EndTime.ToString(@"hh\:mm\:ss"),
@@ -89,13 +91,14 @@ namespace ArtCenterOnline.Server.Controllers
             TeacherId = x.TeacherId,
             TeacherName = x.Teacher?.TeacherName
         };
+
         private static bool IsUniqueViolation(DbUpdateException ex)
         {
             var baseEx = ex.GetBaseException() as SqlException;
             if (baseEx == null) return false;
-            // 2601: Cannot insert duplicate key row (unique index); 2627: Violation of PRIMARY KEY or UNIQUE KEY
             return baseEx.Number == 2601 || baseEx.Number == 2627;
         }
+
         private static string ViDow(int dow)
         {
             return dow switch
@@ -115,7 +118,6 @@ namespace ArtCenterOnline.Server.Controllers
 
         private async Task<string?> GetClassNameAsync(int classId, CancellationToken ct)
         {
-            // Lưu ý: tùy DbSet có thể là _db.Classes hoặc _db.ClassInfos → nếu khác, đổi tên cho khớp.
             var cls = await _db.Classes
                 .AsNoTracking()
                 .Where(c => c.ClassID == classId)
@@ -127,10 +129,8 @@ namespace ArtCenterOnline.Server.Controllers
         private async Task<object?> FindTeacherOverlapDetailAsync(
             int teacherId, int? ignoreScheduleId, DayOfWeek dow, TimeSpan start, TimeSpan end, CancellationToken ct)
         {
-            // Lấy lịch đầu tiên trùng (nếu có) kèm lớp & GV
             var q = _db.ClassSchedules
                 .Include(c => c.Teacher)
-                // Nếu entity có navigation Class thì có thể Include(c => c.Class) — không bắt buộc
                 .Where(c =>
                     c.IsActive &&
                     c.TeacherId == teacherId &&
@@ -201,8 +201,9 @@ namespace ArtCenterOnline.Server.Controllers
                 end = Tfmt(end)
             };
         }
+
         private async Task<object?> FindClassOverlapDetailAsync(
-    int classId, int? ignoreScheduleId, DayOfWeek dow, TimeSpan start, TimeSpan end, CancellationToken ct)
+            int classId, int? ignoreScheduleId, DayOfWeek dow, TimeSpan start, TimeSpan end, CancellationToken ct)
         {
             var q = _db.ClassSchedules
                 .Include(s => s.Teacher)
@@ -210,7 +211,6 @@ namespace ArtCenterOnline.Server.Controllers
                     s.IsActive &&
                     s.ClassID == classId &&
                     (int)s.DayOfWeek == (int)dow &&
-                    // điều kiện overlap chuẩn: start < existing.End && end > existing.Start
                     start < s.EndTime && end > s.StartTime);
 
             if (ignoreScheduleId.HasValue)
@@ -246,7 +246,6 @@ namespace ArtCenterOnline.Server.Controllers
             };
         }
 
-
         // ===== Endpoints =====
 
         // GET: api/ClassSchedules/by-class/{classId}
@@ -256,6 +255,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             var rows = await _db.ClassSchedules
                 .Include(s => s.Teacher)
+                .Include(s => s.Class) // <-- include Class để có ClassName
                 .Where(s => s.ClassID == classId)
                 .OrderBy(s => s.DayOfWeek).ThenBy(s => s.StartTime)
                 .ToListAsync(ct);
@@ -268,7 +268,10 @@ namespace ArtCenterOnline.Server.Controllers
         [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> GetOne(int id, CancellationToken ct)
         {
-            var s = await _db.ClassSchedules.Include(x => x.Teacher).FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
+            var s = await _db.ClassSchedules
+                .Include(x => x.Teacher)
+                .Include(x => x.Class)  // <-- include Class
+                .FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
             if (s == null) return NotFound();
             return Ok(ToDto(s));
         }
@@ -320,7 +323,6 @@ namespace ArtCenterOnline.Server.Controllers
             if (end <= start)
                 return BadRequest(new { error = "InvalidTime", message = "Giờ kết thúc phải lớn hơn giờ bắt đầu." });
 
-            // Chi tiết xung đột (nếu có)
             var detail = await FindTeacherOverlapDetailAsync(
                 dto.TeacherId, dto.IgnoreScheduleId, (DayOfWeek)dto.DayOfWeek, start, end, ct);
 
@@ -436,18 +438,21 @@ namespace ArtCenterOnline.Server.Controllers
                 });
             }
 
-            var withTeacher = await _db.ClassSchedules.Include(x => x.Teacher)
+            var withTeacher = await _db.ClassSchedules
+                .Include(x => x.Teacher)
+                .Include(x => x.Class) // <-- include Class
                 .FirstAsync(x => x.ScheduleId == entity.ScheduleId, ct);
             return Ok(ToDto(withTeacher));
         }
-
 
         // PUT: api/ClassSchedules/{id}
         [HttpPut("{id:int}")]
         [Authorize(Policy = "AdminOnly")]
         public async Task<IActionResult> Update(int id, [FromBody] UpsertScheduleDto dto, CancellationToken ct)
         {
-            var s = await _db.ClassSchedules.Include(x => x.Teacher)
+            var s = await _db.ClassSchedules
+                .Include(x => x.Teacher)
+                .Include(x => x.Class) // include để trả về có ClassName sau khi cập nhật
                 .FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
             if (s == null) return NotFound();
 
@@ -458,7 +463,6 @@ namespace ArtCenterOnline.Server.Controllers
 
             var dow = (DayOfWeek)dto.DayOfWeek;
 
-            // 0) Overlap trong cùng lớp (bao phủ/chéo) — bỏ qua chính nó
             var cover = await FindClassOverlapDetailAsync(dto.ClassID, id, dow, start, end, ct);
             if (cover != null)
             {
@@ -475,7 +479,6 @@ namespace ArtCenterOnline.Server.Controllers
                 });
             }
 
-            // 1) Trùng lịch của lớp (giống hệt) — bỏ qua chính nó
             var dup = await FindDuplicateScheduleInClassAsync(dto.ClassID, id, dow, start, end, ct);
             if (dup != null)
             {
@@ -492,7 +495,6 @@ namespace ArtCenterOnline.Server.Controllers
                 });
             }
 
-            // 2) Trùng lịch giáo viên — bỏ qua chính lịch hiện tại
             if (dto.TeacherId.HasValue)
             {
                 var detail = await FindTeacherOverlapDetailAsync(dto.TeacherId.Value, id, dow, start, end, ct);
@@ -534,11 +536,12 @@ namespace ArtCenterOnline.Server.Controllers
                 });
             }
 
-            var withTeacher = await _db.ClassSchedules.Include(x => x.Teacher)
+            var withTeacher = await _db.ClassSchedules
+                .Include(x => x.Teacher)
+                .Include(x => x.Class) // <-- include Class
                 .FirstAsync(x => x.ScheduleId == s.ScheduleId, ct);
             return Ok(ToDto(withTeacher));
         }
-
 
         // PATCH: api/ClassSchedules/{id}/toggle
         [HttpPatch("{id:int}/toggle")]
@@ -563,17 +566,17 @@ namespace ArtCenterOnline.Server.Controllers
             await _db.SaveChangesAsync(ct);
             return Ok(new { id });
         }
-        [HttpGet] // GET: api/ClassSessions?from=yyyy-MM-dd&to=yyyy-MM-dd&classId=9&teacherId=...&status=...&forCalendar=true
+
+        [HttpGet]
         public async Task<IActionResult> Query(
-       [FromQuery] string? from,
-       [FromQuery] string? to,
-       [FromQuery] int? classId,
-       [FromQuery] int? teacherId,
-       [FromQuery] int? status,
-       [FromQuery] bool forCalendar = false,
-       CancellationToken ct = default)
+            [FromQuery] string? from,
+            [FromQuery] string? to,
+            [FromQuery] int? classId,
+            [FromQuery] int? teacherId,
+            [FromQuery] int? status,
+            [FromQuery] bool forCalendar = false,
+            CancellationToken ct = default)
         {
-            // parse yyyy-MM-dd -> DateOnly (chấp nhận cả định dạng mặc định)
             static bool TryParseDateOnly(string? s, out DateOnly d)
             {
                 if (!string.IsNullOrWhiteSpace(s))
@@ -581,7 +584,6 @@ namespace ArtCenterOnline.Server.Controllers
                     if (DateOnly.TryParseExact(s!, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d))
                         return true;
                     if (DateOnly.TryParse(s!, out d)) return true;
-                    // fallback qua DateTime
                     if (DateTime.TryParse(s!, out var dt))
                     {
                         d = new DateOnly(dt.Year, dt.Month, dt.Day);
@@ -613,7 +615,6 @@ namespace ArtCenterOnline.Server.Controllers
 
             if (forCalendar)
             {
-                // Trả về gọn cho Calendar
                 var items = await q
                     .Select(s => new
                     {
@@ -653,6 +654,5 @@ namespace ArtCenterOnline.Server.Controllers
                 return Ok(items);
             }
         }
-
     }
 }

@@ -277,6 +277,49 @@ namespace ArtCenterOnline.Server.Controllers
             static DateOnly? ParseDateOnly(string? s)
                 => DateOnly.TryParse(s, out var d) ? d : null;
         }
+        // GET api/Reports/students/new?from=yyyy-MM-dd&to=yyyy-MM-dd
+        [HttpGet("students/new")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<List<NewStudentItemDto>>> GetNewStudents(
+            [FromQuery] string? from, [FromQuery] string? to, CancellationToken ct)
+        {
+            var (fromD, toD) = ResolveRange(from, to);
+            // dùng [from, to+1) để bao trọn ngày "to" theo chuẩn service
+            var rows = await _reports.GetNewStudentsInRangeAsync(fromD, toD.AddDays(1), ct);
+            return Ok(rows);
+        }
 
+        // GET api/Reports/classes/created?from=yyyy-MM-dd&to=yyyy-MM-dd
+        [HttpGet("classes/created")]
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<List<NewClassItemDto>>> GetClassesCreated(
+            [FromQuery] string? from, [FromQuery] string? to, CancellationToken ct)
+        {
+            var (fromD, toD) = ResolveRange(from, to);
+            var rows = await _reports.GetClassesCreatedInRangeAsync(fromD, toD.AddDays(1), ct);
+            return Ok(rows);
+        }
+
+        // =================== helpers ===================
+        private static (DateOnly from, DateOnly to) ResolveRange(string? from, string? to)
+        {
+            // Mặc định: tháng hiện tại
+            var nowLocal = DateTime.UtcNow.AddHours(7);
+            var first = new DateOnly(nowLocal.Year, nowLocal.Month, 1);
+            var last = new DateOnly(nowLocal.Year, nowLocal.Month,
+                                    DateTime.DaysInMonth(nowLocal.Year, nowLocal.Month));
+
+            var f = ParseDateOnly(from) ?? first;
+            var t = ParseDateOnly(to) ?? last;
+            if (t < f) t = f;
+            return (f, t);
+        }
+
+        private static DateOnly? ParseDateOnly(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            return DateOnly.TryParseExact(s, "yyyy-MM-dd",
+                     CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+        }
     }
 }

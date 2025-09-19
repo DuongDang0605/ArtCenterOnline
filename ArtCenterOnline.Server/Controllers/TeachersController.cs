@@ -3,6 +3,7 @@ using ArtCenterOnline.Server.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace ArtCenterOnline.Server.Controllers
 {
@@ -13,6 +14,14 @@ namespace ArtCenterOnline.Server.Controllers
     {
         private readonly AppDbContext _db;
         public TeachersController(AppDbContext db) => _db = db;
+
+        private static bool IsValidEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return false;
+            // Regex gọn, đủ cho quản trị nội bộ (không quá khắt khe)
+            return Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+\.[^\s@]+$");
+        }
+
 
         // ===== DTOs cho create/update (ĐÃ BỎ SoBuoiDayTrongThang) =====
         public class TeacherCreateDto
@@ -160,6 +169,10 @@ namespace ArtCenterOnline.Server.Controllers
                 return BadRequest("Mật khẩu phải ít nhất 6 ký tự.");
 
             input.Email = input.Email.Trim();
+            input.Email = input.Email.Trim().ToLowerInvariant();
+
+            if (!IsValidEmail(input.Email))
+                return BadRequest("Email không hợp lệ.");
 
             // Email unique?
             var existed = await _db.Users.AsNoTracking()
@@ -252,9 +265,7 @@ namespace ArtCenterOnline.Server.Controllers
             if (isAdmin)
             {
                 // Admin được sửa thêm các field khác
-                if (!string.IsNullOrWhiteSpace(input.Email) && teacher.User != null)
-                    teacher.User.Email = input.Email.Trim();
-
+              
                 if (!string.IsNullOrWhiteSpace(input.Password) && teacher.User != null)
                     teacher.User.PasswordHash = AuthController.HashPassword(input.Password);
 

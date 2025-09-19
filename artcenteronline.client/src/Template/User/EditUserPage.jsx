@@ -13,10 +13,14 @@ export default function EditUserPage() {
 
     const [form, setForm] = useState({
         userEmail: "",
-        password: "", // ĐỂ TRỐNG NẾU KHÔNG MUỐN ĐỔI
+        password: "",      // để trống nếu không đổi
+        password2: "",     // xác nhận mật khẩu mới
         status: 1,
         role: "",
     });
+
+    const [pwTouched, setPwTouched] = useState(false);
+    const [pw2Touched, setPw2Touched] = useState(false);
 
     const isAdmin = String(form.role || "").toLowerCase() === "admin";
 
@@ -26,9 +30,7 @@ export default function EditUserPage() {
         if (!id || Number.isNaN(Number(id))) {
             setErr("Missing or invalid user id");
             setLoading(false);
-            return () => {
-                alive = false;
-            };
+            return () => { alive = false; };
         }
 
         (async () => {
@@ -37,7 +39,8 @@ export default function EditUserPage() {
                 if (!alive) return;
                 setForm({
                     userEmail: data?.userEmail ?? "",
-                    password: "", // luôn để trống khi load — tránh lộ mật khẩu
+                    password: "",
+                    password2: "",
                     status: data?.status ?? 0,
                     role: data?.role ?? "",
                 });
@@ -48,9 +51,7 @@ export default function EditUserPage() {
             }
         })();
 
-        return () => {
-            alive = false;
-        };
+        return () => { alive = false; };
     }, [id]);
 
     const onChange = (e) => {
@@ -58,35 +59,52 @@ export default function EditUserPage() {
         setForm((s) => ({ ...s, [name]: name === "status" ? Number(value) : value }));
     };
 
+    // ===== Realtime validation (giống Profile) =====
+    const trimmed = (form.password || "").trim();
+    const trimmed2 = (form.password2 || "").trim();
+
+    const pwTooShort = !!trimmed && trimmed.length < 6;
+    const pwMismatch = (!!trimmed || !!trimmed2) && trimmed !== trimmed2;
+    const pwMatchOk = !!trimmed && !!trimmed2 && trimmed === trimmed2 && !pwTooShort;
+
+    // Nếu trống => cho phép lưu (không đổi mật khẩu).
+    // Nếu nhập => phải hợp lệ.
+    const formInvalid = pwTooShort || pwMismatch;
+
+    const fgClass = (error, success) => {
+        if (error) return "form-group has-error";
+        if (success) return "form-group has-success";
+        return "form-group";
+    };
+
     const onSubmit = async (e) => {
         e.preventDefault();
         if (isAdmin) return; // không cho sửa admin
 
-        // Ý #2: Nếu người dùng nhập mật khẩu thì phải >= 6 ký tự
-        const trimmed = (form.password || "").trim();
-        if (trimmed && trimmed.length < 6) {
-            setErr("Mật khẩu mới phải có ít nhất 6 ký tự.");
+        if (formInvalid) {
+            setErr("Vui lòng sửa lỗi ở phần mật khẩu trước khi lưu.");
             return;
         }
 
         try {
             setSaving(true);
+            setErr(null);
 
-            // Bắt buộc gửi UserId để BE không báo "Id không khớp"
             const payload = {
                 UserId: Number(id),
-                UserEmail: form.userEmail,
                 Status: form.status,
             };
 
-            // Ý #1: Không nhập mật khẩu -> KHÔNG gửi field Password => BE sẽ giữ mật khẩu cũ
+            // Không đổi -> không gửi Password
             if (trimmed) {
                 payload.Password = trimmed;
             }
 
             await updateUser(Number(id), payload);
+
+            // điều hướng về danh sách kèm thông báo (toast sẽ hiển thị ở trang đích nếu bạn đã cấu hình)
             navigate("/users", {
-                state: { notice: `Cập nhật tài khoản #${id} thành công.` },
+                state: { notice: "Cập nhật thành công." },
                 replace: true,
             });
         } catch (e) {
@@ -131,6 +149,7 @@ export default function EditUserPage() {
                                     </div>
                                 )}
 
+                                {/* Email: chỉ hiển thị, không cho sửa */}
                                 <div className="form-group">
                                     <label>Email</label>
                                     <input
@@ -139,12 +158,13 @@ export default function EditUserPage() {
                                         name="userEmail"
                                         value={form.userEmail}
                                         onChange={onChange}
-                                        disabled={isAdmin}
-                                        required
+                                        disabled
                                     />
+                                    <p className="help-block">Email không thể thay đổi.</p>
                                 </div>
 
-                                <div className="form-group">
+                                {/* Mật khẩu mới */}
+                                <div className={fgClass(pwTouched && pwTooShort, false)}>
                                     <label>Mật khẩu mới (để trống nếu không đổi)</label>
                                     <input
                                         type="password"
@@ -152,12 +172,34 @@ export default function EditUserPage() {
                                         name="password"
                                         value={form.password}
                                         onChange={onChange}
-                                        disabled={isAdmin}
+                                        onBlur={() => setPwTouched(true)}
                                         placeholder="Để trống nếu không thay đổi"
+                                        disabled={isAdmin}
                                     />
-                                    <p className="help-block">
-                                        Nhập tối thiểu 6 ký tự nếu muốn đổi mật khẩu. Để trống để giữ mật khẩu cũ.
-                                    </p>
+                                    {pwTouched && pwTooShort && (
+                                        <p className="help-block">Mật khẩu mới phải có ít nhất 6 ký tự.</p>
+                                    )}
+                                </div>
+
+                                {/* Xác nhận mật khẩu mới */}
+                                <div className={fgClass(pw2Touched && pwMismatch, pw2Touched && pwMatchOk)}>
+                                    <label>Nhập lại mật khẩu mới</label>
+                                    <input
+                                        type="password"
+                                        className="form-control"
+                                        name="password2"
+                                        value={form.password2}
+                                        onChange={onChange}
+                                        onBlur={() => setPw2Touched(true)}
+                                        placeholder="Nhập lại mật khẩu mới"
+                                        disabled={isAdmin}
+                                    />
+                                    {pw2Touched && pwMismatch && (
+                                        <p className="help-block">Xác nhận mật khẩu không khớp.</p>
+                                    )}
+                                    {pw2Touched && pwMatchOk && (
+                                        <p className="help-block text-green">Mật khẩu khớp.</p>
+                                    )}
                                 </div>
 
                                 <div className="form-group">
@@ -184,7 +226,11 @@ export default function EditUserPage() {
                                     <Link to="/users" className="btn btn-default">
                                         Quay lại
                                     </Link>
-                                    <button type="submit" className="btn btn-primary pull-right" disabled={isAdmin || saving}>
+                                    <button
+                                        type="submit"
+                                        className="btn btn-primary pull-right"
+                                        disabled={isAdmin || saving || formInvalid}
+                                    >
                                         {saving ? "Đang lưu..." : "Lưu thay đổi"}
                                     </button>
                                 </div>

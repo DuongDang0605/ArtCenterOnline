@@ -35,7 +35,6 @@ export async function updateTeacher(id, payload) {
 
     const dto = {
         TeacherId: Number(id),
-        Email: payload?.Email ?? payload?.email ?? undefined,
         TeacherName: payload?.TeacherName ?? payload?.teacherName ?? "",
         PhoneNumber: payload?.PhoneNumber ?? payload?.phoneNumber ?? "",
         status,

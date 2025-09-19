@@ -22,6 +22,7 @@ namespace ArtCenterOnline.Server.Model.DTO.Reports
         public double AttendanceRateDeltaPct { get; set; }  // chênh lệch điểm %
 
         // Sessions (tháng này + tháng trước)
+        public int SessionsTotalThisMonth { get; set; }
         public int SessionsThisMonth { get; set; }
         public int SessionsCanceled { get; set; }
         public int SessionsThisMonthPrev { get; set; }   // NEW
