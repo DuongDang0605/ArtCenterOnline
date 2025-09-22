@@ -243,6 +243,27 @@ export default function Sidebar() {
                                             </li>
                                         </ul>
                                     </li>
+
+                                    <li className="treeview">
+                                        <a href="#">
+                                            <i className="fa fa-money" /> <span>Quản lý nộp học phí</span>
+                                            <span className="pull-right-container">
+                                                <i className="fa fa-angle-left pull-right" />
+                                            </span>
+                                        </a>
+                                        <ul className="treeview-menu">
+                                            <li>
+                                                <Link to="/admin/tuition/pending">
+                                                    <i className="fa fa-circle-o" /> Chờ duyệt
+                                                </Link>
+                                            </li>
+                                            <li>
+                                                <Link to="/admin/tuition/history">
+                                                    <i className="fa fa-circle-o" /> Lịch sử
+                                                </Link>
+                                            </li>
+                                        </ul>
+                                    </li>                                   
                                 </>
                             )}
                         </>
@@ -261,6 +282,26 @@ export default function Sidebar() {
                                 <Link to="/me/profile">
                                     <i className="fa fa-id-card" /> <span>Thông tin của tôi</span>
                                 </Link>
+                            </li>
+                            <li className="treeview">
+                                <a href="#">
+                                    <i className="fa fa-money" /> <span>Đóng tiền học</span>
+                                    <span className="pull-right-container">
+                                        <i className="fa fa-angle-left pull-right" />
+                                    </span>
+                                </a>
+                                <ul className="treeview-menu">
+                                    <li>
+                                        <Link to="/student/tuition/requests">
+                                            <i className="fa fa-circle-o" /> Lịch sử yêu cầu
+                                        </Link>
+                                    </li>
+                                    <li>
+                                        <Link to="/student/tuition/new-request">
+                                            <i className="fa fa-circle-o" /> Tạo yêu cầu mới
+                                        </Link>
+                                    </li>
+                                </ul>
                             </li>
                         </>
                     )}

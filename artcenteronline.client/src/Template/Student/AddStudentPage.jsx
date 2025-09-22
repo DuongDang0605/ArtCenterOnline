@@ -1,7 +1,7 @@
 ﻿// src/Template/Student/AddStudentPage.jsx
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createStudent } from "./students.js"; // POST /Students (giữ nguyên) :contentReference[oaicite:1]{index=1}
+import { createStudent } from "./students.js"; // POST /Students
 
 /** dd/MM/yyyy -> ISO yyyy-MM-dd (or null if invalid) */
 function dmyToISO(dmy) {
@@ -85,7 +85,7 @@ export default function AddStudentPage() {
     });
 
     const [saving, setSaving] = useState(false);
-    const [errors, setErrors] = useState([]); // lỗi validate form tổng quát (giữ lại cấu trúc cũ để show trong box)
+    const [errors, setErrors] = useState([]); // lỗi validate form tổng quát
     const [ngayBatDauHocText, setNgayBatDauHocText] = useState("");
 
     useEffect(() => {
@@ -95,7 +95,7 @@ export default function AddStudentPage() {
 
     const setField = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
 
-    // ===== Realtime validation & highlight style giống AddTeacherPage ===== :contentReference[oaicite:2]{index=2}
+    // ===== Realtime validation & highlight style =====
     const email = (form.Email || "").trim();
     const emailInvalid = !!email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -122,8 +122,12 @@ export default function AddStudentPage() {
         const errs = [];
         if (!String(form.StudentName || "").trim()) errs.push("Vui lòng nhập tên học viên.");
         if (!form.ngayBatDauHoc) errs.push("Vui lòng nhập ngày bắt đầu học (định dạng dd/mm/yyyy).");
-        const n = Number(form.SoBuoiHocDaHoc);
-        if (Number.isNaN(n) || n < 0) errs.push("Số buổi đã học phải là số không âm.");
+
+        const nLearned = Number(form.SoBuoiHocDaHoc);
+        if (Number.isNaN(nLearned) || nLearned < 0) errs.push("Số buổi đã học phải là số không âm.");
+
+        const nRemain = Number(form.SoBuoiHocConLai);
+        if (Number.isNaN(nRemain) || nRemain < 0) errs.push("Số buổi học đã đóng phải là số không âm.");
 
         if (email) {
             if (emailInvalid) errs.push("Email không hợp lệ.");
@@ -200,7 +204,7 @@ export default function AddStudentPage() {
                                 <h3 className="box-title">Thông tin học viên</h3>
                             </div>
 
-                            {/* Khối lỗi tổng quát (giữ nguyên kiểu cũ) */} {/* :contentReference[oaicite:3]{index=3} */}
+                            {/* Khối lỗi tổng quát */}
                             {errors.length > 0 && (
                                 <div className="box-body">
                                     <div className="alert alert-danger">
@@ -301,6 +305,19 @@ export default function AddStudentPage() {
                                         />
                                     </div>
 
+                                    {/* Số buổi học còn lại */}
+                                    <div className="form-group">
+                                        <label htmlFor="SoBuoiHocConLai">Số buổi học đã đóng</label>
+                                        <input
+                                            id="SoBuoiHocConLai"
+                                            className="form-control"
+                                            type="number"
+                                            min={0}
+                                            value={form.SoBuoiHocConLai}
+                                            onChange={(e) => setField("SoBuoiHocConLai", e.target.value)}
+                                        />
+                                    </div>
+
                                     {/* Trạng thái */}
                                     <div className="form-group">
                                         <label htmlFor="Status">Trạng thái</label>
@@ -339,7 +356,7 @@ export default function AddStudentPage() {
                                             value={form.Password}
                                             onChange={(e) => setField("Password", e.target.value)}
                                             placeholder="Tối thiểu 6 ký tự"
-                                            disabled={!requireAccount && !pw} // cho nhập nếu muốn, còn nếu chưa nhập thì coi như bỏ qua
+                                            disabled={!requireAccount && !pw}
                                         />
                                         {requireAccount && pwTooShort && <p className="help-block">Mật khẩu phải ít nhất 6 ký tự.</p>}
                                         {!requireAccount && pw && pwTooShort && <p className="help-block">Mật khẩu phải ít nhất 6 ký tự.</p>}

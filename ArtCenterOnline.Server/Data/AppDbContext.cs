@@ -30,6 +30,9 @@ namespace ArtCenterOnline.Server.Data
         public DbSet<WebTrafficMonthly> WebTrafficMonthlies { get; set; }
         public DbSet<AuthLoginLog> AuthLoginLogs { get; set; }
 
+        // NEW: TuitionPaymentRequests
+        public DbSet<TuitionPaymentRequest> TuitionPaymentRequests { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -41,15 +44,12 @@ namespace ArtCenterOnline.Server.Data
                 entity.Property(e => e.ClassName).HasMaxLength(100).IsRequired();
                 entity.Property(e => e.Branch).HasMaxLength(100).IsRequired();
                 entity.Property(e => e.Status).HasDefaultValue(1);
-
-
             });
 
             // User
-            // ... trong OnModelCreating(ModelBuilder modelBuilder)
             modelBuilder.Entity<User>(entity =>
             {
-                entity.ToTable("Users");              // <— RÀNG TÊN BẢNG
+                entity.ToTable("Users");
                 entity.HasKey(e => e.UserId);
                 entity.Property(e => e.Email).HasMaxLength(100).IsRequired();
                 entity.HasIndex(e => e.Email).IsUnique();
@@ -60,7 +60,7 @@ namespace ArtCenterOnline.Server.Data
 
             modelBuilder.Entity<Role>(entity =>
             {
-                entity.ToTable("Role");               // <— RÀNG TÊN BẢNG
+                entity.ToTable("Role");
                 entity.HasKey(r => r.RoleId);
                 entity.Property(r => r.Name).HasMaxLength(50).IsRequired();
                 entity.HasIndex(r => r.Name).IsUnique();
@@ -68,21 +68,11 @@ namespace ArtCenterOnline.Server.Data
 
             modelBuilder.Entity<UserRole>(entity =>
             {
-                entity.ToTable("UserRole");           // <— RÀNG TÊN BẢNG (số ÍT)
+                entity.ToTable("UserRole");
                 entity.HasKey(x => new { x.UserId, x.RoleId });
                 entity.HasOne(x => x.User).WithMany(u => u.UserRoles).HasForeignKey(x => x.UserId);
                 entity.HasOne(x => x.Role).WithMany(r => r.UserRoles).HasForeignKey(x => x.RoleId);
             });
-
-
-            // StudentInfo
-            modelBuilder.Entity<StudentInfo>(entity =>
-            {
-                entity.HasKey(e => e.StudentId);
-                entity.Property(e => e.Status).HasDefaultValue(1);
-                entity.Property<DateTime?>("StatusChangedAt");
-            });
-
 
             // TeacherInfo (1-1 với User)
             modelBuilder.Entity<TeacherInfo>(entity =>
@@ -91,31 +81,29 @@ namespace ArtCenterOnline.Server.Data
                 entity.Property(e => e.status).HasDefaultValue(1);
 
                 entity.HasOne(t => t.User)
-                      .WithOne() // không navigation ở phía User
+                      .WithOne()
                       .HasForeignKey<TeacherInfo>(t => t.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                entity.HasIndex(t => t.UserId).IsUnique(); // đảm bảo 1-1
+                entity.HasIndex(t => t.UserId).IsUnique();
             });
 
             // ClassStudent (bảng nối many-to-many)
             modelBuilder.Entity<ClassStudent>(entity =>
             {
-                // Khóa chính tổng hợp
                 entity.HasKey(cs => new { cs.ClassID, cs.StudentId });
 
-                // FK tới ClassInfo
                 entity.HasOne(cs => cs.Class)
                       .WithMany(c => c.ClassStudents)
                       .HasForeignKey(cs => cs.ClassID)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // FK tới StudentInfo
                 entity.HasOne(cs => cs.Student)
                       .WithMany(s => s.ClassStudents)
                       .HasForeignKey(cs => cs.StudentId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
+
             // ClassSchedule
             modelBuilder.Entity<ClassSchedule>(entity =>
             {
@@ -132,25 +120,19 @@ namespace ArtCenterOnline.Server.Data
                       .HasForeignKey(s => s.ClassID)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Tránh tạo trùng lịch cùng ngày/giờ cho cùng 1 lớp
                 entity.HasIndex(s => new { s.ClassID, s.DayOfWeek, s.StartTime })
                       .IsUnique();
 
-                modelBuilder.Entity<ClassSchedule>(entity =>
-                {
-                    // (các cấu hình sẵn có…)
+                // NEW: FK sang Teacher + index theo giáo viên
+                entity.HasOne(e => e.Teacher)
+                      .WithMany()
+                      .HasForeignKey(e => e.TeacherId)
+                      .OnDelete(DeleteBehavior.Restrict);
 
-                    // NEW: FK sang Teacher, xoá GV bị chặn khi đang có lịch tham chiếu
-                    entity.HasOne(e => e.Teacher)
-                          .WithMany()
-                          .HasForeignKey(e => e.TeacherId)
-                          .OnDelete(DeleteBehavior.Restrict);
-
-                    // NEW: chỉ mục hỗ trợ validator mức lịch theo GV
-                    entity.HasIndex(e => new { e.TeacherId, e.DayOfWeek, e.StartTime, e.EndTime });
-                });
-
+                entity.HasIndex(e => new { e.TeacherId, e.DayOfWeek, e.StartTime, e.EndTime });
             });
+
+            // ClassSession (chỉ giữ 1 khối, bỏ bản lặp)
             modelBuilder.Entity<ClassSession>(entity =>
             {
                 entity.HasKey(s => s.SessionId);
@@ -161,10 +143,8 @@ namespace ArtCenterOnline.Server.Data
                 entity.Property(s => s.Status).HasDefaultValue(SessionStatus.Planned);
                 entity.Property(s => s.IsAutoGenerated).HasDefaultValue(true);
                 entity.Property(s => s.Note).HasMaxLength(500);
-                // Trong OnModelCreating, phần mapping ClassSession — thêm 2 dòng dưới nếu muốn:
                 entity.Property(s => s.AccountingApplied).HasDefaultValue(false);
                 entity.Property(s => s.AccountingAppliedAtUtc);
-
 
                 entity.HasOne(s => s.Class)
                       .WithMany(c => c.Sessions)
@@ -176,47 +156,11 @@ namespace ArtCenterOnline.Server.Data
                       .HasForeignKey(s => s.TeacherId)
                       .OnDelete(DeleteBehavior.SetNull);
 
-                // Không trùng buổi trong 1 lớp
-                entity.HasIndex(s => new { s.ClassID, s.SessionDate, s.StartTime })
-                      .IsUnique();
-
-                // Tối ưu truy vấn theo giáo viên/ngày (chỉ index khi TeacherId không null)
+                entity.HasIndex(s => new { s.ClassID, s.SessionDate, s.StartTime }).IsUnique();
                 entity.HasIndex("TeacherId", "SessionDate")
                       .HasFilter("[TeacherId] IS NOT NULL");
             });
 
-
-            // 👉 NEW: ClassSession mapping
-            modelBuilder.Entity<ClassSession>(entity =>
-            {
-                entity.HasKey(s => s.SessionId);
-                entity.Property(s => s.SessionDate).IsRequired();
-                entity.Property(s => s.StartTime).IsRequired();
-                entity.Property(s => s.EndTime).IsRequired();
-                entity.Property(s => s.Status).HasDefaultValue(SessionStatus.Planned);
-                entity.Property(s => s.IsAutoGenerated).HasDefaultValue(true);
-                entity.Property(s => s.Note).HasMaxLength(500);
-
-
-                entity.HasOne(s => s.Class)
-                .WithMany(c => c.Sessions)
-                .HasForeignKey(s => s.ClassID)
-                .OnDelete(DeleteBehavior.Cascade);
-
-
-                entity.HasOne(s => s.Teacher)
-                .WithMany()
-                .HasForeignKey(s => s.TeacherId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-
-                // Không trùng buổi trong 1 lớp (ngày + giờ bắt đầu)
-                entity.HasIndex(s => new { s.ClassID, s.SessionDate, s.StartTime }).IsUnique();
-
-
-                // Tối ưu tìm theo giáo viên và ngày
-                entity.HasIndex("TeacherId", "SessionDate").HasFilter("[TeacherId] IS NOT NULL");
-            });
             modelBuilder.Entity<Attendance>()
                .HasIndex(a => new { a.SessionId, a.StudentId })
                .IsUnique();
@@ -224,12 +168,8 @@ namespace ArtCenterOnline.Server.Data
             modelBuilder.Entity<TeacherMonthlyStat>()
                 .HasIndex(x => new { x.TeacherId, x.Year, x.Month })
                 .IsUnique();
-            modelBuilder.Entity<UserRole>().HasKey(x => new { x.UserId, x.RoleId });
-            modelBuilder.Entity<UserRole>()
-                .HasOne(x => x.User).WithMany(u => u.UserRoles).HasForeignKey(x => x.UserId);
-            modelBuilder.Entity<UserRole>()
-                .HasOne(x => x.Role).WithMany(r => r.UserRoles).HasForeignKey(x => x.RoleId);
-            // Data/AppDbContext.cs - trong OnModelCreating
+
+            // StudentInfo (giữ bản đầy đủ, có 1-1 với User)
             modelBuilder.Entity<StudentInfo>(entity =>
             {
                 entity.HasKey(e => e.StudentId);
@@ -237,61 +177,63 @@ namespace ArtCenterOnline.Server.Data
                 entity.Property<DateTime?>("StatusChangedAt");
 
                 entity.HasOne(s => s.User)
-                      .WithOne()                                  // KHÔNG dùng WithMany
+                      .WithOne()
                       .HasForeignKey<StudentInfo>(s => s.UserId)
-                      .OnDelete(DeleteBehavior.Restrict);         // tránh xoá dây chuyền
+                      .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasIndex(s => s.UserId).IsUnique()
-                      .HasFilter("[UserId] IS NOT NULL");         // 1–1 có filter NULL
+                      .HasFilter("[UserId] IS NOT NULL");
             });
+
             modelBuilder.Entity<PasswordResetOtp>(entity =>
             {
                 entity.ToTable("PasswordResetOtp");
                 entity.HasKey(e => e.OtpId);
 
-                entity.Property(e => e.CodeHash)
-                      .HasMaxLength(120)
-                      .IsRequired();
+                entity.Property(e => e.CodeHash).HasMaxLength(120).IsRequired();
+                entity.Property(e => e.Purpose).HasMaxLength(20).HasDefaultValue("reset").IsRequired();
+                entity.Property(e => e.ExpiresAtUtc).IsRequired();
+                entity.Property(e => e.Attempts).HasDefaultValue(0);
+                entity.Property(e => e.SendCount).HasDefaultValue(1);
+                entity.Property(e => e.LastSentAtUtc).IsRequired();
+                entity.Property(e => e.ClientIp).HasMaxLength(45);
+                entity.Property(e => e.UserAgent).HasMaxLength(200);
 
-                entity.Property(e => e.Purpose)
-                      .HasMaxLength(20)
-                      .HasDefaultValue("reset")
-                      .IsRequired();
-
-                entity.Property(e => e.ExpiresAtUtc)
-                      .IsRequired();
-
-                entity.Property(e => e.Attempts)
-                      .HasDefaultValue(0);
-
-                entity.Property(e => e.SendCount)
-                      .HasDefaultValue(1);
-
-                entity.Property(e => e.LastSentAtUtc)
-                      .IsRequired();
-
-                entity.Property(e => e.ClientIp)
-                      .HasMaxLength(45);
-
-                entity.Property(e => e.UserAgent)
-                      .HasMaxLength(200);
-
-                // FK -> Users (UserId)
                 entity.HasOne(e => e.User)
-                      .WithMany() // nếu User không có ICollection<PasswordResetOtp>
+                      .WithMany()
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Tối ưu truy vấn
                 entity.HasIndex(e => e.LastSentAtUtc);
                 entity.HasIndex(e => new { e.UserId, e.Purpose });
 
-                // Đảm bảo mỗi user chỉ có 1 OTP "chưa dùng" cho mỗi purpose
-                // (Unique filtered index – SQL Server)
                 entity.HasIndex(e => new { e.UserId, e.Purpose })
                       .IsUnique()
                       .HasFilter("[ConsumedAtUtc] IS NULL");
             });
+
+            // TuitionPaymentRequest
+            modelBuilder.Entity<TuitionPaymentRequest>(entity =>
+            {
+                entity.ToTable("TuitionPaymentRequests");
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.ImagePath).HasMaxLength(260);
+                entity.Property(e => e.ImageContentType).HasMaxLength(100);
+                entity.Property(e => e.EmailSnapshot).HasMaxLength(120);
+                entity.Property(e => e.RejectReason).HasMaxLength(300);
+                entity.Property(e => e.CreatedAtUtc).HasDefaultValueSql("GETUTCDATE()");
+
+                entity.HasOne(e => e.Student)
+                      .WithMany()
+                      .HasForeignKey(e => e.StudentId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.StudentId, e.Status })
+                      .IsUnique()
+                      .HasFilter("[Status] = 0");
+            });
+
             // WEB REQUEST LOGS
             modelBuilder.Entity<WebRequestLog>(entity =>
             {
@@ -313,7 +255,7 @@ namespace ArtCenterOnline.Server.Data
             modelBuilder.Entity<WebTrafficDaily>(entity =>
             {
                 entity.ToTable("WebTrafficDaily");
-                entity.HasKey(e => new { e.Date, e.Path }); // Path = "" cho tổng site
+                entity.HasKey(e => new { e.Date, e.Path });
 
                 entity.Property(e => e.Path).HasMaxLength(300).IsRequired();
                 entity.Property(e => e.Hits).HasDefaultValue(0);
@@ -351,10 +293,6 @@ namespace ArtCenterOnline.Server.Data
                 entity.HasIndex(e => new { e.Role, e.DateLocal });
                 entity.HasIndex(e => new { e.UserId, e.DateLocal });
             });
-
-
-
-
         }
     }
 }

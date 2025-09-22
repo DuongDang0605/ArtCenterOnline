@@ -11,6 +11,7 @@
   <ItemGroup>
     <Folder Include="src\Template\ClassSchedule\" />
     <Folder Include="src\Template\Auth\" />
+    <Folder Include="src\Template\Tuition\" />
     <Folder Include="src\Template\Reports\" />
     <Folder Include="src\Template\Profile\" />
     <Folder Include="src\Template\Teacher\" />

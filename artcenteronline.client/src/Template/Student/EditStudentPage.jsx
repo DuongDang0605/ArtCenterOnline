@@ -66,7 +66,7 @@ export default function EditStudentPage() {
     // Text hiển thị dd/MM/yyyy
     const [ngayBatDauHocText, setNgayBatDauHocText] = useState("");
 
-    // ==== Toast lỗi: đếm ngược 5s + progress (giống Schedule) ====
+    // ==== Toast lỗi: đếm ngược 5s + progress ====
     const AUTO_DISMISS = 5000;
     const [err, setErr] = useState("");
     const [remaining, setRemaining] = useState(0);
@@ -83,7 +83,7 @@ export default function EditStudentPage() {
             if (left === 0) setErr("");
         }, 1000);
         return () => clearInterval(iv);
-    }, [err]); // :contentReference[oaicite:2]{index=2}
+    }, [err]);
 
     useEffect(() => {
         let ignore = false;
@@ -126,7 +126,7 @@ export default function EditStudentPage() {
     function validate() {
         if (!form.StudentName?.trim()) return "Vui lòng nhập Tên học viên.";
         if (!form.ngayBatDauHoc) return "Vui lòng nhập Ngày bắt đầu học (dd/mm/yyyy).";
-        if (form.SoBuoiHocConLai < 0) return "Số buổi học còn lại không hợp lệ.";
+        if (form.SoBuoiHocConLai < 0) return "Số buổi học đã đóng không hợp lệ.";
         if (form.SoBuoiHocDaHoc < 0) return "Số buổi đã học không hợp lệ.";
         if (form.PhoneNumber.length > 10) return "Số điện thoại không hợp lệ";
         return "";
@@ -140,7 +140,6 @@ export default function EditStudentPage() {
         setSaving(true);
         try {
             await updateStudent(id, { ...form, ngayBatDauHoc: form.ngayBatDauHoc });
-            // giống Schedule: chuyển trang kèm notice
             navigate("/students", { state: { notice: "Đã cập nhật học viên." } });
         } catch (e) {
             showError(extractErr(e));
@@ -274,7 +273,7 @@ export default function EditStudentPage() {
                             </div>
 
                             <div className="form-group">
-                                <label htmlFor="SoBuoiHocConLai">Số buổi học còn lại</label>
+                                <label htmlFor="SoBuoiHocConLai">Số buổi học đã đóng</label>
                                 <input
                                     id="SoBuoiHocConLai"
                                     className="form-control"
