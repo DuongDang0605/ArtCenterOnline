@@ -9,7 +9,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Data.SqlClient;
 
 namespace ArtCenterOnline.Server.Controllers
 {
@@ -37,7 +36,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             public int ScheduleId { get; set; }
             public int ClassID { get; set; }
-            public string? ClassName { get; set; }   // <-- thêm
+            public string? ClassName { get; set; }   // tên lớp
             public int DayOfWeek { get; set; } // 0..6
             public string StartTime { get; set; } = "00:00:00";
             public string EndTime { get; set; } = "00:00:00";
@@ -82,7 +81,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             ScheduleId = x.ScheduleId,
             ClassID = x.ClassID,
-            ClassName = x.Class != null ? x.Class.ClassName : null, // <-- map tên lớp
+            ClassName = x.Class != null ? x.Class.ClassName : null,
             DayOfWeek = (int)x.DayOfWeek,
             StartTime = x.StartTime.ToString(@"hh\:mm\:ss"),
             EndTime = x.EndTime.ToString(@"hh\:mm\:ss"),
@@ -91,13 +90,6 @@ namespace ArtCenterOnline.Server.Controllers
             TeacherId = x.TeacherId,
             TeacherName = x.Teacher?.TeacherName
         };
-
-        private static bool IsUniqueViolation(DbUpdateException ex)
-        {
-            var baseEx = ex.GetBaseException() as SqlException;
-            if (baseEx == null) return false;
-            return baseEx.Number == 2601 || baseEx.Number == 2627;
-        }
 
         private static string ViDow(int dow)
         {
@@ -246,6 +238,72 @@ namespace ArtCenterOnline.Server.Controllers
             };
         }
 
+        /// <summary>
+        /// Kiểm tra tất cả xung đột cần chặn khi lịch ở trạng thái Active.
+        /// Trả về IActionResult (409) nếu có xung đột; null nếu an toàn.
+        /// </summary>
+        private async Task<IActionResult?> ValidateActiveConflictsAsync(
+            int classId, int? ignoreScheduleId, int? teacherId,
+            DayOfWeek dow, TimeSpan start, TimeSpan end, CancellationToken ct)
+        {
+            // 0) Overlap/bao phủ trong cùng lớp
+            var cover = await FindClassOverlapDetailAsync(classId, ignoreScheduleId, dow, start, end, ct);
+            if (cover != null)
+            {
+                var cName = (string?)cover.GetType().GetProperty("className")?.GetValue(cover) ?? $"#{classId}";
+                var dayName = (string?)cover.GetType().GetProperty("dayName")?.GetValue(cover) ?? ViDow((int)dow);
+                var st = (string?)cover.GetType().GetProperty("start")?.GetValue(cover) ?? Tfmt(start);
+                var en = (string?)cover.GetType().GetProperty("end")?.GetValue(cover) ?? Tfmt(end);
+
+                return Conflict(new
+                {
+                    error = "ClassOverlap",
+                    message = $"Lớp {cName} đã có lịch trùng/bao phủ vào {dayName} {st}-{en}.",
+                    conflicts = new[] { cover }
+                });
+            }
+
+            // 1) Trùng tuyệt đối trong lớp
+            var dup = await FindDuplicateScheduleInClassAsync(classId, ignoreScheduleId, dow, start, end, ct);
+            if (dup != null)
+            {
+                var cName = (string?)dup.GetType().GetProperty("className")?.GetValue(dup) ?? $"#{classId}";
+                var dayName = (string?)dup.GetType().GetProperty("dayName")?.GetValue(dup) ?? ViDow((int)dow);
+                var st = (string?)dup.GetType().GetProperty("start")?.GetValue(dup) ?? Tfmt(start);
+                var en = (string?)dup.GetType().GetProperty("end")?.GetValue(dup) ?? Tfmt(end);
+
+                return Conflict(new
+                {
+                    error = "DuplicateSchedule",
+                    message = $"Lớp {cName} đã có lịch {dayName} {st}-{en}.",
+                    duplicate = dup
+                });
+            }
+
+            // 2) Trùng lịch giáo viên (nếu có TeacherId)
+            if (teacherId.HasValue)
+            {
+                var detail = await FindTeacherOverlapDetailAsync(teacherId.Value, ignoreScheduleId, dow, start, end, ct);
+                if (detail != null)
+                {
+                    var tName = (string?)detail.GetType().GetProperty("teacherName")?.GetValue(detail) ?? "Giáo viên";
+                    var cName = (string?)detail.GetType().GetProperty("className")?.GetValue(detail) ?? $"#{classId}";
+                    var dayName = (string?)detail.GetType().GetProperty("dayName")?.GetValue(detail) ?? ViDow((int)dow);
+                    var st = (string?)detail.GetType().GetProperty("start")?.GetValue(detail) ?? Tfmt(start);
+                    var en = (string?)detail.GetType().GetProperty("end")?.GetValue(detail) ?? Tfmt(end);
+
+                    return Conflict(new
+                    {
+                        error = "TeacherOverlap",
+                        message = $"{tName} trùng lịch ở lớp {cName} — {dayName} {st}-{en}.",
+                        conflicts = new[] { detail }
+                    });
+                }
+            }
+
+            return null; // không xung đột
+        }
+
         // ===== Endpoints =====
 
         // GET: api/ClassSchedules/by-class/{classId}
@@ -255,7 +313,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             var rows = await _db.ClassSchedules
                 .Include(s => s.Teacher)
-                .Include(s => s.Class) // <-- include Class để có ClassName
+                .Include(s => s.Class)
                 .Where(s => s.ClassID == classId)
                 .OrderBy(s => s.DayOfWeek).ThenBy(s => s.StartTime)
                 .ToListAsync(ct);
@@ -270,7 +328,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             var s = await _db.ClassSchedules
                 .Include(x => x.Teacher)
-                .Include(x => x.Class)  // <-- include Class
+                .Include(x => x.Class)
                 .FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
             if (s == null) return NotFound();
             return Ok(ToDto(s));
@@ -357,59 +415,13 @@ namespace ArtCenterOnline.Server.Controllers
 
             var dow = (DayOfWeek)dto.DayOfWeek;
 
-            // 0) Overlap trong cùng lớp (bao phủ/chéo)
-            var cover = await FindClassOverlapDetailAsync(dto.ClassID, null, dow, start, end, ct);
-            if (cover != null)
+            // Chỉ chặn khi lịch được bật ngay lúc tạo
+            if (dto.IsActive)
             {
-                var cName = (string?)cover.GetType().GetProperty("className")?.GetValue(cover) ?? $"#{dto.ClassID}";
-                var dayName = (string?)cover.GetType().GetProperty("dayName")?.GetValue(cover) ?? ViDow(dto.DayOfWeek);
-                var st = (string?)cover.GetType().GetProperty("start")?.GetValue(cover) ?? Tfmt(start);
-                var en = (string?)cover.GetType().GetProperty("end")?.GetValue(cover) ?? Tfmt(end);
-
-                return Conflict(new
-                {
-                    error = "ClassOverlap",
-                    message = $"Lớp {cName} đã có lịch trùng/bao phủ vào {dayName} {st}-{en}.",
-                    conflicts = new[] { cover }
-                });
-            }
-
-            // 1) Trùng lịch của lớp (giống hệt)
-            var dup = await FindDuplicateScheduleInClassAsync(dto.ClassID, null, dow, start, end, ct);
-            if (dup != null)
-            {
-                var cName = (string?)dup.GetType().GetProperty("className")?.GetValue(dup) ?? $"#{dto.ClassID}";
-                var dayName = (string?)dup.GetType().GetProperty("dayName")?.GetValue(dup) ?? ViDow(dto.DayOfWeek);
-                var st = (string?)dup.GetType().GetProperty("start")?.GetValue(dup) ?? Tfmt(start);
-                var en = (string?)dup.GetType().GetProperty("end")?.GetValue(dup) ?? Tfmt(end);
-
-                return Conflict(new
-                {
-                    error = "DuplicateSchedule",
-                    message = $"Lớp {cName} đã có lịch {dayName} {st}-{en}.",
-                    duplicate = dup
-                });
-            }
-
-            // 2) Trùng lịch giáo viên (chi tiết)
-            if (dto.TeacherId.HasValue)
-            {
-                var detail = await FindTeacherOverlapDetailAsync(dto.TeacherId.Value, null, dow, start, end, ct);
-                if (detail != null)
-                {
-                    var tName = (string?)detail.GetType().GetProperty("teacherName")?.GetValue(detail) ?? "Giáo viên";
-                    var cName = (string?)detail.GetType().GetProperty("className")?.GetValue(detail) ?? $"#{dto.ClassID}";
-                    var dayName = (string?)detail.GetType().GetProperty("dayName")?.GetValue(detail) ?? ViDow(dto.DayOfWeek);
-                    var st = (string?)detail.GetType().GetProperty("start")?.GetValue(detail) ?? Tfmt(start);
-                    var en = (string?)detail.GetType().GetProperty("end")?.GetValue(detail) ?? Tfmt(end);
-
-                    return Conflict(new
-                    {
-                        error = "TeacherOverlap",
-                        message = $"{tName} trùng lịch ở lớp {cName} — {dayName} {st}-{en}.",
-                        conflicts = new[] { detail }
-                    });
-                }
+                var conflict = await ValidateActiveConflictsAsync(
+                    dto.ClassID, ignoreScheduleId: null, teacherId: dto.TeacherId,
+                    dow: dow, start: start, end: end, ct);
+                if (conflict != null) return conflict;
             }
 
             var entity = new ClassSchedule
@@ -424,23 +436,11 @@ namespace ArtCenterOnline.Server.Controllers
             };
 
             _db.ClassSchedules.Add(entity);
-
-            try
-            {
-                await _db.SaveChangesAsync(ct);
-            }
-            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
-            {
-                return Conflict(new
-                {
-                    error = "DuplicateScheduleDb",
-                    message = "Lịch của lớp bị trùng theo ràng buộc dữ liệu. Vui lòng kiểm tra ngày/giờ và thử lại."
-                });
-            }
+            await _db.SaveChangesAsync(ct);
 
             var withTeacher = await _db.ClassSchedules
                 .Include(x => x.Teacher)
-                .Include(x => x.Class) // <-- include Class
+                .Include(x => x.Class)
                 .FirstAsync(x => x.ScheduleId == entity.ScheduleId, ct);
             return Ok(ToDto(withTeacher));
         }
@@ -452,7 +452,7 @@ namespace ArtCenterOnline.Server.Controllers
         {
             var s = await _db.ClassSchedules
                 .Include(x => x.Teacher)
-                .Include(x => x.Class) // include để trả về có ClassName sau khi cập nhật
+                .Include(x => x.Class)
                 .FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
             if (s == null) return NotFound();
 
@@ -463,56 +463,13 @@ namespace ArtCenterOnline.Server.Controllers
 
             var dow = (DayOfWeek)dto.DayOfWeek;
 
-            var cover = await FindClassOverlapDetailAsync(dto.ClassID, id, dow, start, end, ct);
-            if (cover != null)
+            // Chỉ chặn khi sau update lịch ở trạng thái bật
+            if (dto.IsActive)
             {
-                var cName = (string?)cover.GetType().GetProperty("className")?.GetValue(cover) ?? $"#{dto.ClassID}";
-                var dayName = (string?)cover.GetType().GetProperty("dayName")?.GetValue(cover) ?? ViDow(dto.DayOfWeek);
-                var st = (string?)cover.GetType().GetProperty("start")?.GetValue(cover) ?? Tfmt(start);
-                var en = (string?)cover.GetType().GetProperty("end")?.GetValue(cover) ?? Tfmt(end);
-
-                return Conflict(new
-                {
-                    error = "ClassOverlap",
-                    message = $"Lớp {cName} đã có lịch trùng/bao phủ vào {dayName} {st}-{en}.",
-                    conflicts = new[] { cover }
-                });
-            }
-
-            var dup = await FindDuplicateScheduleInClassAsync(dto.ClassID, id, dow, start, end, ct);
-            if (dup != null)
-            {
-                var cName = (string?)dup.GetType().GetProperty("className")?.GetValue(dup) ?? $"#{dto.ClassID}";
-                var dayName = (string?)dup.GetType().GetProperty("dayName")?.GetValue(dup) ?? ViDow(dto.DayOfWeek);
-                var st = (string?)dup.GetType().GetProperty("start")?.GetValue(dup) ?? Tfmt(start);
-                var en = (string?)dup.GetType().GetProperty("end")?.GetValue(dup) ?? Tfmt(end);
-
-                return Conflict(new
-                {
-                    error = "DuplicateSchedule",
-                    message = $"Lớp {cName} đã có lịch {dayName} {st}-{en}.",
-                    duplicate = dup
-                });
-            }
-
-            if (dto.TeacherId.HasValue)
-            {
-                var detail = await FindTeacherOverlapDetailAsync(dto.TeacherId.Value, id, dow, start, end, ct);
-                if (detail != null)
-                {
-                    var tName = (string?)detail.GetType().GetProperty("teacherName")?.GetValue(detail) ?? "Giáo viên";
-                    var cName = (string?)detail.GetType().GetProperty("className")?.GetValue(detail) ?? $"#{dto.ClassID}";
-                    var dayName = (string?)detail.GetType().GetProperty("dayName")?.GetValue(detail) ?? ViDow(dto.DayOfWeek);
-                    var st = (string?)detail.GetType().GetProperty("start")?.GetValue(detail) ?? Tfmt(start);
-                    var en = (string?)detail.GetType().GetProperty("end")?.GetValue(detail) ?? Tfmt(end);
-
-                    return Conflict(new
-                    {
-                        error = "TeacherOverlap",
-                        message = $"{tName} trùng lịch ở lớp {cName} — {dayName} {st}-{en}.",
-                        conflicts = new[] { detail }
-                    });
-                }
+                var conflict = await ValidateActiveConflictsAsync(
+                    dto.ClassID, ignoreScheduleId: id, teacherId: dto.TeacherId,
+                    dow: dow, start: start, end: end, ct);
+                if (conflict != null) return conflict;
             }
 
             s.ClassID = dto.ClassID;
@@ -523,22 +480,11 @@ namespace ArtCenterOnline.Server.Controllers
             s.Note = dto.Note;
             s.TeacherId = dto.TeacherId;
 
-            try
-            {
-                await _db.SaveChangesAsync(ct);
-            }
-            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
-            {
-                return Conflict(new
-                {
-                    error = "DuplicateScheduleDb",
-                    message = "Lịch của lớp bị trùng theo ràng buộc dữ liệu. Vui lòng kiểm tra ngày/giờ và thử lại."
-                });
-            }
+            await _db.SaveChangesAsync(ct);
 
             var withTeacher = await _db.ClassSchedules
                 .Include(x => x.Teacher)
-                .Include(x => x.Class) // <-- include Class
+                .Include(x => x.Class)
                 .FirstAsync(x => x.ScheduleId == s.ScheduleId, ct);
             return Ok(ToDto(withTeacher));
         }
@@ -550,7 +496,23 @@ namespace ArtCenterOnline.Server.Controllers
         {
             var s = await _db.ClassSchedules.FirstOrDefaultAsync(x => x.ScheduleId == id, ct);
             if (s == null) return NotFound();
-            s.IsActive = !s.IsActive;
+
+            if (!s.IsActive)
+            {
+                // Chuẩn bị bật → kiểm tra xung đột theo luật Active
+                var conflict = await ValidateActiveConflictsAsync(
+                    classId: s.ClassID, ignoreScheduleId: s.ScheduleId, teacherId: s.TeacherId,
+                    dow: s.DayOfWeek, start: s.StartTime, end: s.EndTime, ct);
+                if (conflict != null) return conflict;
+
+                s.IsActive = true;
+            }
+            else
+            {
+                // Đang bật → tắt thì không cần kiểm tra
+                s.IsActive = false;
+            }
+
             await _db.SaveChangesAsync(ct);
             return Ok(new { id = s.ScheduleId, isActive = s.IsActive });
         }

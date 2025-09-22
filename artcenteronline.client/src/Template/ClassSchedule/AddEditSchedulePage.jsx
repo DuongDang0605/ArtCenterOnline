@@ -19,7 +19,20 @@ const VI_DOW = [
     { v: 6, t: "Thứ 7" },
 ];
 
-// (tuỳ chọn) nạp danh sách GV động để không vỡ import khi thiếu module
+// ----- helper đồng nhất hiển thị lỗi như trang ClassSchedulesPage -----
+function extractErr(e) {
+    const r = e?.response;
+    // Ưu tiên message từ BE (409, 400, 500 ...)
+    const msg =
+        r?.data?.message ||
+        r?.data?.detail ||
+        r?.data?.title ||
+        (typeof r?.data === "string" ? r.data : null) ||
+        e?.message ||
+        "Có lỗi xảy ra khi lưu.";
+    return String(msg);
+}
+
 let fetchTeachers = async () => [];
 try {
     const modPromise = import("../Teacher/teachers");
@@ -76,7 +89,7 @@ export default function AddEditSchedulePage() {
             const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
             setRemaining(left);
             if (left === 0) setErr("");
-        }, 1000); // đổi thành 1000 nếu muốn nhảy 1s
+        }, 1000);
         return () => clearInterval(iv);
     }, [err, AUTO_DISMISS]);
 
@@ -102,7 +115,7 @@ export default function AddEditSchedulePage() {
                     });
                 }
             } catch (e) {
-                showError(e?.response?.data?.message || e.message || "Lỗi tải dữ liệu.");
+                showError(extractErr(e));
             } finally {
                 setLoading(false);
             }
@@ -114,7 +127,7 @@ export default function AddEditSchedulePage() {
     const onChange = (e) => {
         const { name, value, type, checked } = e.target;
         setForm((f) => ({ ...f, [name]: type === "checkbox" ? !!checked : value }));
-        if (err) showError(""); // đổi gì cũng clear lỗi
+        if (err) showError("");
     };
 
     function validate() {
@@ -146,7 +159,7 @@ export default function AddEditSchedulePage() {
         try {
             setSaving(true);
 
-            // cảnh báo trùng học sinh khi EDIT (giữ flow cũ)
+            // Cảnh báo trùng học sinh khi EDIT (giữ flow cũ)
             if (id) {
                 const warn = await checkStudentOverlapForSchedule(id);
                 if (Array.isArray(warn) && warn.length) {
@@ -164,15 +177,8 @@ export default function AddEditSchedulePage() {
                 nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã thêm lịch học mới." } });
             }
         } catch (e) {
-            const res = e?.response;
-            const msg =
-                res?.data?.message ||
-                res?.data?.detail ||
-                res?.data?.title ||
-                (typeof res?.data === "string" ? res.data : null) ||
-                e?.message ||
-                "Có lỗi xảy ra khi lưu.";
-            showError(String(msg));
+            // Đồng nhất: hiển thị message trả về từ BE (409/400/500...)
+            showError(extractErr(e));
         } finally {
             setSaving(false);
         }
@@ -288,7 +294,6 @@ export default function AddEditSchedulePage() {
                                     </div>
                                 </div>
 
-
                                 {/* Giờ */}
                                 <div className="col-sm-2">
                                     <div className="form-group">
@@ -329,6 +334,11 @@ export default function AddEditSchedulePage() {
                                 <label>
                                     <input type="checkbox" name="isActive" checked={!!form.isActive} onChange={onChange} /> Kích hoạt
                                 </label>
+                                {!form.isActive && (
+                                    <div style={{ fontSize: 12, color: "#777", marginTop: 4 }}>
+                                        * Lịch đang tắt: hệ thống không kiểm tra trùng. Khi bật lại sẽ kiểm tra.
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -401,7 +411,7 @@ export default function AddEditSchedulePage() {
                                 nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã thêm lịch học mới." } });
                             }
                         } catch (e) {
-                            showError(e?.response?.data?.message || e.message || "Có lỗi xảy ra khi lưu.");
+                            showError(extractErr(e));
                         } finally {
                             setSaving(false);
                         }
