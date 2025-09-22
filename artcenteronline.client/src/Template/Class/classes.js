@@ -50,3 +50,15 @@ export async function deleteClass(id) {
         throw enrichError(err);
     }
 }
+
+// src/Template/Class/classes.js
+
+
+export async function searchClasses(keyword) {
+    try {
+        const { data } = await http.get(`/Classes`, { params: { q: keyword } });
+        return data; // [{ classId, className, branch }]
+    } catch (err) {
+        throw enrichError(err);
+    }
+}

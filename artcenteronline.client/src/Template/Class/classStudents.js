@@ -64,3 +64,33 @@ export async function setClassStudentActive(classId, studentId, isActive) {
         throw enrichError(err);
     }
 }
+
+export async function importClassStudentsExcel(classId, file) {
+    try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const { data } = await http.post(
+            `/ClassStudents/import-excel/${classId}`,
+            formData,
+            {
+                headers: { "Content-Type": "multipart/form-data" },
+            }
+        );
+        return data; // { errors: [...] } hoặc { pending: [...] }
+    } catch (err) {
+        throw enrichError(err);
+    }
+}
+
+export async function downloadImportClassTemplate(classId) {
+    try {
+        const res = await http.get(`/ClassStudents/import/template/${classId}`, {
+            responseType: "blob",
+        });
+        return res;
+    } catch (err) {
+        throw enrichError(err);
+    }
+}
+

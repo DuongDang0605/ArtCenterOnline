@@ -111,6 +111,14 @@ export default function Sidebar() {
                                             </Link>
                                         </li>
                                     )}
+                                    {isAdmin && (
+                                        <li>
+                                            <Link to="/class-students/import-excel">
+                                                <i className="fa fa-circle-o" /> Thêm học viên vào lớp (Excel)
+                                            </Link>
+                                        </li>
+                                    )}
+
                                 </ul>
                             </li>
 

@@ -1,6 +1,6 @@
 ﻿// src/Template/Class/ClassStudentsInClassPage.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { getStudentsInClass, setClassStudentActive } from "../Class/classStudents";
 import { getClass } from "../Class/classes";
 import { useAuth } from "../../auth/authCore";
@@ -35,6 +35,7 @@ function toVNDate(input) {
 export default function ClassStudentsInClassPage() {
     const { classId } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const { isAdmin, isTeacher } = useAuth() || {};
 
     const [rows, setRows] = useState([]);
@@ -58,6 +59,16 @@ export default function ClassStudentsInClassPage() {
         setToastOk(text);
         if (text) setOkRemain(AUTO_DISMISS);
     }
+
+    // Nhận flash từ trang import
+    useEffect(() => {
+        const msg = location?.state?.flash;
+        if (msg) {
+            showOk(msg);
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         if (!toastErr) return;
@@ -236,7 +247,6 @@ export default function ClassStudentsInClassPage() {
                     <div className="box-header with-border" style={{ display: "flex", justifyContent: "space-between" }}>
                         <h3 className="box-title">Danh sách (có thể bật/tắt IsActive)</h3>
                         <div className="box-tools" style={{ display: "flex", gap: 8 }}>
-
                             <button className="btn btn-default btn-sm" onClick={() => navigate(-1)}>
                                 <i className="fa fa-arrow-left" /> Quay lại
                             </button>
@@ -263,7 +273,7 @@ export default function ClassStudentsInClassPage() {
                                             <th>Địa chỉ</th>
                                             <th>Ngày nhập học</th>
                                             <th>Ngày vào lớp</th>
-                                            <th>IsActive</th>
+                                            <th>Trạng thái</th>
                                             <th>Hành động</th>
                                         </tr>
                                     </thead>
@@ -288,7 +298,7 @@ export default function ClassStudentsInClassPage() {
                                                         disabled={togglingId === r.studentId}
                                                         onClick={() => handleToggleClick(r.studentId, r.isActive, r.name)}
                                                     >
-                                                        <i className="fa fa-toggle-on" /> {r.isActive ? "Tắt" : "Bật"}
+                                                        <i className="fa fa-toggle-on" /> {r.isActive ? "Nghỉ" : "Học"}
                                                     </button>
                                                 </td>
                                             </tr>
@@ -329,7 +339,7 @@ export default function ClassStudentsInClassPage() {
                 </div>
             )}
 
-            {/* Toast lỗi nổi (đếm ngược + progress) */}
+            {/* Toast lỗi */}
             {toastErr && (
                 <div
                     className="alert alert-danger"
@@ -354,7 +364,7 @@ export default function ClassStudentsInClassPage() {
                 </div>
             )}
 
-            {/* Toast thành công (đếm ngược + progress) */}
+            {/* Toast thành công */}
             {toastOk && (
                 <div
                     className="alert alert-success"

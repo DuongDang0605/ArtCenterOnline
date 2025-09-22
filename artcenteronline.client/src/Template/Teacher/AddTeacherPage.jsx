@@ -137,10 +137,10 @@ export default function AddTeacherPage() {
                                             required
                                         />
                                         {email && emailInvalid && (
-                                            <p className="help-block">Email không hợp lệ.</p>
+                                            <p className="help-block">Email không đúng định dạng</p>
                                         )}
                                         {email && !emailInvalid && (
-                                            <p className="help-block text-green">Email hợp lệ.</p>
+                                            <p className="help-block text-green">Email đúng định dạng</p>
                                         )}
                                     </div>
 
