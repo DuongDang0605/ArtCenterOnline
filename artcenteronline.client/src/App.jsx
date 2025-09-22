@@ -34,6 +34,8 @@ import SessionsPage from "./Template/Session/SessionsPage.jsx";
 import EditSessionPage from "./Template/Session/EditSessionPage.jsx";
 import SessionAttendancePage from "./Template/Session/SessionAttendancePage.jsx";
 import ImportStudentsExcelPage from "./Template/Student/ImportStudentsExcelPage.jsx";
+import ImportClassStudentsExcelPage from "./Template/Class/ImportClassStudentsExcelPage";
+
 
 
 import ProfilePage from "./Template/Profile/ProfilePage";
@@ -131,6 +133,15 @@ export default function App() {
                                 </RequireRole>
                             }
                         />
+                        <Route
+                            path="/class-students/import-excel"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <ImportClassStudentsExcelPage />
+                                </RequireRole>
+                            }
+                        />
+
 
                         {/* Classes */}
                         <Route path="classes" element={<ClassesPage />} />
