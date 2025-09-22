@@ -7,6 +7,7 @@ import { getSchedulesByClass, toggleSchedule, deleteSchedule } from "./schedules
 const VI_DOW = ["CN", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
 const fmt = (t) => (t || "").slice(0, 5); // "HH:mm:ss" -> "HH:mm"
 
+// Đồng bộ format lỗi với AddEdit
 function extractErr(e) {
     const r = e?.response;
     return (
@@ -26,7 +27,27 @@ export default function ClassSchedulesPage() {
 
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
+
+    // ===== Toast lỗi giống AddEdit =====
+    const AUTO_DISMISS = 5000; // ms
+    const [err, setErr] = useState("");
+    const [remaining, setRemaining] = useState(0);
+    function showError(msg) {
+        const text = String(msg || "");
+        setErr(text);
+        if (text) setRemaining(AUTO_DISMISS);
+    }
+    useEffect(() => {
+        if (!err) return;
+        const startedAt = Date.now();
+        const iv = setInterval(() => {
+            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
+            setRemaining(left);
+            if (left === 0) setErr("");
+        }, 100);
+        return () => clearInterval(iv);
+    }, [err]);
+
     const [notice, setNotice] = useState(location.state?.notice || "");
 
     const tableRef = useRef(null);
@@ -34,13 +55,12 @@ export default function ClassSchedulesPage() {
 
     async function load() {
         setLoading(true);
-        setErr(null);
         try {
             const data = await getSchedulesByClass(classId);
             const list = (Array.isArray(data) ? data : []).filter(Boolean);
             setRows(list);
         } catch (e) {
-            setErr(extractErr(e));
+            showError(extractErr(e));
         } finally {
             setLoading(false);
         }
@@ -64,7 +84,7 @@ export default function ClassSchedulesPage() {
 
     // Init DataTables
     useEffect(() => {
-        if (loading || err) return;
+        if (loading) return;
         const $ = window.jQuery || window.$;
         if (!$ || !$.fn || !$.fn.DataTable) return;
         if (!tableRef.current || dtRef.current) return;
@@ -141,7 +161,7 @@ export default function ClassSchedulesPage() {
                     )
                 );
             } catch (e) {
-                alert(extractErr(e));
+                showError(extractErr(e)); // thay alert bằng toast
             }
         });
 
@@ -152,10 +172,10 @@ export default function ClassSchedulesPage() {
                 await deleteSchedule(id);
                 setRows((prev) => prev.filter((r) => (r.scheduleId ?? r.ScheduleId) !== id));
             } catch (e) {
-                alert(extractErr(e));
+                showError(extractErr(e)); // thay alert bằng toast
             }
         });
-    }, [loading, err, rows, classId]);
+    }, [loading, rows, classId]);
 
     useEffect(() => {
         if (dtRef.current) {
@@ -185,6 +205,32 @@ export default function ClassSchedulesPage() {
                 <div className="box">
                     <div className="box-body">Đang tải…</div>
                 </div>
+
+                {/* Toast lỗi khi đang loading (nếu có) */}
+                {err && (
+                    <div
+                        className="alert alert-danger"
+                        style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                    >
+                        <button type="button" className="close" onClick={() => setErr("")} aria-label="Close" style={{ marginLeft: 8 }}>
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                        {err}
+                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                            Tự ẩn sau {(remaining / 1000).toFixed(1)}s
+                        </div>
+                        <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                            <div
+                                style={{
+                                    height: "100%",
+                                    width: `${(remaining / AUTO_DISMISS) * 100}%`,
+                                    background: "#a94442",
+                                    transition: "width 100ms linear",
+                                }}
+                            />
+                        </div>
+                    </div>
+                )}
             </section>
         );
     }
@@ -221,8 +267,6 @@ export default function ClassSchedulesPage() {
             </section>
 
             <section className="content">
-                {err && <div className="alert alert-danger">{err}</div>}
-
                 <div className="box">
                     <div className="box-header with-border">
                         <Link className="btn btn-primary" to={`/classes/${classId}/schedules/new`}>
@@ -252,6 +296,32 @@ export default function ClassSchedulesPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toast lỗi nổi giống AddEdit */}
+            {err && (
+                <div
+                    className="alert alert-danger"
+                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
+                >
+                    <button type="button" className="close" onClick={() => setErr("")} aria-label="Close" style={{ marginLeft: 8 }}>
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                    {err}
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
+                    </div>
+                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
+                        <div
+                            style={{
+                                height: "100%",
+                                width: `${(remaining / AUTO_DISMISS) * 100}%`,
+                                background: "#a94442",
+                                transition: "width 100ms linear",
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
         </>
     );
 }
