@@ -101,6 +101,7 @@ export default function StudentProfilePage() {
 
     const studentId = String(me.StudentId ?? me.studentId ?? "");
     const soDaHoc = me.SoBuoiHocDaHoc ?? me.soBuoiHocDaHoc;
+    const soConLai = me.SoBuoiHocConLai ?? me.soBuoiHocConLai;
     const startDate = me.ngayBatDauHoc ?? "";
     const isActive = (me.Status ?? me.status) === 1;
 
@@ -153,27 +154,23 @@ export default function StudentProfilePage() {
 .profile-form .form-group {
     margin-bottom: 14px;
 }
-
 .profile-form .control-label {
     font-weight: 600;
     color: #333;
     font-size: 14px;
 }
-
 .profile-form .form-control {
-    height: 40px; /* cao hơn mặc định */
-    font-size: 15px; /* chữ to hơn */
+    height: 40px;
+    font-size: 15px;
     border-radius: 4px;
-    border-color: #d2d6de; /* màu viền AdminLTE */
+    border-color: #d2d6de;
     box-shadow: none;
     transition: border-color .2s ease, box-shadow .2s ease;
 }
-
     .profile-form .form-control:focus {
-        border-color: #3c8dbc; /* primary AdminLTE */
+        border-color: #3c8dbc;
         box-shadow: 0 0 0 2px rgba(60,141,188,.15);
     }
-
 .profile-form .input-group-addon {
     background: #f7f7f7;
     border-color: #d2d6de;
@@ -181,87 +178,41 @@ export default function StudentProfilePage() {
     font-size: 14px;
     color: #666;
 }
-
-/* Text ở chế độ xem (không edit) cho đồng đều với input */
 .profile-form .form-control-static {
     font-size: 15px;
     padding-top: 8px;
     color: #111;
 }
-
-/* Nhãn trạng thái đẹp hơn một chút */
 .profile-form .label {
     display: inline-block;
     padding: 5px 10px;
 }
-
-/* Hàng “đã học / còn lại” sát nhau, không quá to */
 .profile-form .quick-stats .badge {
     padding: 6px 10px;
     font-weight: 600;
 }
-
-/* Khoảng cách nút hành động */
 .profile-form .action-row {
     display: flex;
     gap: 8px;
 }
-
-/* Giới hạn chiều rộng để form cân ở màn hình rộng */
 .profile-form .narrow {
     max-width: 820px;
     width: 100%;
     margin: 0 auto;
 }
-
-/* Nhỏ gọn hơn ở màn hình bé */
 @media (max-width: 767px) {
     .profile-form .control-label {
         text-align: left !important;
         margin-bottom: 6px;
     }
 }
-/* Mã HV */
-.profile-form .input-group-addon .fa-id-badge {
-    color: #dd4b39 !important;
-}
-/* đỏ */
-
-/* Họ tên & Phụ huynh */
-.profile-form .input-group-addon .fa-user {
-    color: #3c8dbc !important;
-}
-/* xanh dương */
-
-/* Điện thoại */
-.profile-form .input-group-addon .fa-phone {
-    color: #00a65a !important;
-}
-/* xanh lá */
-
-/* Địa chỉ */
-.profile-form .input-group-addon .fa-map-marker {
-    color: #f39c12 !important;
-}
-/* cam */
-
-/* Bắt đầu học (calendar) */
-.profile-form .input-group-addon .fa-calendar {
-    color: #605ca8 !important;
-}
-/* tím */
-
-/* Trạng thái (info) */
-.profile-form .input-group-addon .fa-info-circle {
-    color: #00c0ef !important;
-}
-/* xanh ngọc */
-
-/* Số buổi đã học (check) */
-.profile-form .input-group-addon .fa-check-square-o {
-    color: #00a65a !important;
-}
-/* xanh lá */
+.profile-form .input-group-addon .fa-id-badge { color: #dd4b39 !important; }
+.profile-form .input-group-addon .fa-user { color: #3c8dbc !important; }
+.profile-form .input-group-addon .fa-phone { color: #00a65a !important; }
+.profile-form .input-group-addon .fa-map-marker { color: #f39c12 !important; }
+.profile-form .input-group-addon .fa-calendar { color: #605ca8 !important; }
+.profile-form .input-group-addon .fa-info-circle { color: #00c0ef !important; }
+.profile-form .input-group-addon .fa-check-square-o { color: #00a65a !important; }
 `}</style>
             <section className="content profile-form">
                 {toast && (
@@ -290,7 +241,7 @@ export default function StudentProfilePage() {
                 )
                 }
                 <div className="box box-primary">
-                    {/* HEADER (bỏ narrow để bám trái) */}
+                    {/* HEADER */}
                     <div
                         className="box-header with-border"
                         style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
@@ -327,7 +278,7 @@ export default function StudentProfilePage() {
                         )}
                     </div>
 
-                    {/* BODY (bỏ narrow để bám trái; bỏ quick-stats) */}
+                    {/* BODY */}
                     <div className="box-body">
                         {msg.text && msg.type !== "ok" ? (
                             <div className="callout callout-warning" style={{ marginTop: 0, marginBottom: 16 }}>
@@ -335,7 +286,7 @@ export default function StudentProfilePage() {
                             </div>
                         ) : null}
 
-                        {/* VIEW MODE: tất cả trường sát trái, cùng layout; Status & Số buổi đã học ở cuối */}
+                        {/* VIEW MODE */}
                         {!editing ? (
                             <form className="form-horizontal">
                                 <Row label="Mã học viên" icon="fa-id-badge" name="studentId" value={studentId} readOnly />
@@ -345,7 +296,7 @@ export default function StudentProfilePage() {
                                 <Row label="Địa chỉ" icon="fa-map-marker" name="adress" value={form.adress || ""} readOnly />
                                 <Row label="Bắt đầu học" icon="fa-calendar" name="startDate" value={startDate || ""} readOnly />
 
-                                {/* ↓ Đưa xuống cuối theo yêu cầu */}
+                                {/* Trạng thái + Số buổi */}
                                 <Row
                                     label="Trạng thái"
                                     icon="fa-info-circle"
@@ -360,9 +311,16 @@ export default function StudentProfilePage() {
                                     value={soDaHoc != null ? String(soDaHoc) : ""}
                                     readOnly
                                 />
+                                <Row
+                                    label="Số buổi đã đóng"
+                                    icon="fa-check-square-o"
+                                    name="soConLai"
+                                    value={soConLai != null ? String(soConLai) : ""}
+                                    readOnly
+                                />
                             </form>
                         ) : (
-                            // EDIT MODE: giữ layout, Status & Số buổi đã học vẫn readOnly và đặt cuối
+                            // EDIT MODE
                             <form
                                 className="form-horizontal"
                                 onSubmit={(e) => {
@@ -408,9 +366,6 @@ export default function StudentProfilePage() {
                                     placeholder="Nhập địa chỉ liên hệ"
                                     maxLength={255}
                                 />
-
-                                {/* ↓ Đưa xuống cuối theo yêu cầu */}
-
 
                                 <div className="form-group" style={{ marginTop: 8 }}>
                                     <div className="col-sm-offset-2 col-sm-10" style={{ display: "flex", gap: 8 }}>

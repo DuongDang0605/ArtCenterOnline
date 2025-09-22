@@ -48,6 +48,13 @@ import StudentCalendarPage from "./Template/Student/StudentCalendarPage.jsx";
 import StudentSelfCalendarPage from "./Template/Student/StudentSelfCalendarPage.jsx";
 import StudentProfilePage from "./Template/Student/StudentProfilePage.jsx";
 
+
+// Tuition pages (Student & Admin)
+import StudentTuitionRequestsPage from "./Template/Tuition/StudentTuitionRequestsPage.jsx";
+import NewTuitionRequestPage from "./Template/Tuition/NewTuitionRequestPage.jsx";
+import AdminTuitionPendingPage from "./Template/Tuition/AdminTuitionPendingPage.jsx";
+import AdminTuitionHistoryPage from "./Template/Tuition/AdminTuitionHistoryPage.jsx";
+import AdminTuitionRequestDetailPage from "./Template/Tuition/AdminTuitionRequestDetailPage.jsx";
 export default function App() {
     return (
         <AuthProvider>
@@ -234,8 +241,49 @@ export default function App() {
                                 </RequireRole>
                             }
                         />
+                        {/* Student tuition */}
+                        <Route
+                            path="student/tuition/requests"
+                            element={
+                                <RequireRole roles={["Student"]}>
+                                    <StudentTuitionRequestsPage />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="student/tuition/new-request"
+                            element={
+                                <RequireRole roles={["Student"]}>
+                                    <NewTuitionRequestPage />
+                                </RequireRole>
+                            }
+                        />
 
-
+                        {/* Admin tuition */}
+                        <Route
+                            path="admin/tuition/pending"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <AdminTuitionPendingPage />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="admin/tuition/history"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <AdminTuitionHistoryPage />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="admin/tuition/requests/:id"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <AdminTuitionRequestDetailPage />
+                                </RequireRole>
+                            }
+                        />
 
                         {/* (Tuỳ chọn) 404 trong layout */}
                         <Route path="*" element={<div className="p-3">Không tìm thấy trang</div>} />

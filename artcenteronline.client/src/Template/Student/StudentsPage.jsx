@@ -151,11 +151,12 @@ export default function StudentsPage() {
                 aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
-                { targets: 0, width: 80 },   // ID
-                { targets: 1, width: 200 },  // User Email
-                { targets: 6, width: 120 },  // Số buổi đã học
-                { targets: 7, width: 120 },  // Trạng thái
-                { targets: 8, width: 200 },  // Hành động
+                { targets: 0, width: 80 },    // ID
+                { targets: 1, width: 200 },   // User Email
+                { targets: 7, width: 120 },   // Số buổi đã học
+                { targets: 8, width: 120 },   // Số buổi còn lại
+                { targets: 9, width: 120 },   // Trạng thái
+                { targets: 10, width: 200 },  // Hành động
             ],
         });
 
@@ -227,6 +228,7 @@ export default function StudentsPage() {
                                             <th>Địa chỉ</th>
                                             <th>Ngày nhập học</th>
                                             <th>Số buổi đã học</th>
+                                            <th>Số buổi đã đóng</th>
                                             <th>Trạng thái</th>
                                             <th>Hành động</th>
                                         </tr>
@@ -243,6 +245,7 @@ export default function StudentsPage() {
                                                 <td>{r.address}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>{r.learned}</td>
+                                                <td>{r.remaining}</td>
                                                 <td>
                                                     <span className={"label " + (r.statusNum === 1 ? "label-success" : "label-default")}>
                                                         {r.statusNum === 1 ? "Đang học" : "Ngừng học"}
