@@ -52,6 +52,7 @@ export default function ClassAvailableStudentsPage() {
         const phone = x[pick("phoneNumber", "PhoneNumber", "PhoneNumer")] ?? "";
         const address = x[pick("address", "Address", "adress", "Adress")] ?? "";
         const startRaw = x[pick("ngayBatDauHoc", "startDate", "StartDate")];
+        const email = x[pick("email", "Email")] ?? "";
         let startDate = "";
         if (startRaw) {
             try {
@@ -61,7 +62,7 @@ export default function ClassAvailableStudentsPage() {
                 startDate = String(startRaw);
             }
         }
-        return { id, name, parent, phone, address, startDate };
+        return { id, name, parent, phone, address, startDate, email };
     };
 
     // Load data
@@ -290,6 +291,7 @@ export default function ClassAvailableStudentsPage() {
                                             <th>Tên phụ huynh</th>
                                             <th>Số điện thoại</th>
                                             <th>Địa chỉ</th>
+                                            <th>Email</th>
                                             <th>Ngày nhập học</th>
                                             <th>Hành động</th>
                                         </tr>
@@ -310,6 +312,7 @@ export default function ClassAvailableStudentsPage() {
                                                 <td>{r.parent}</td>
                                                 <td>{r.phone}</td>
                                                 <td>{r.address}</td>
+                                                <td>{r.email}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>
                                                     {isAdmin ? (
