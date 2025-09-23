@@ -2,19 +2,21 @@
 import React, { useEffect, useState } from "react";
 import { getUser, updateUser } from "./users";
 import { useNavigate, useParams, Link } from "react-router-dom";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function EditUserPage() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
     const [saving, setSaving] = useState(false);
 
     const [form, setForm] = useState({
         userEmail: "",
-        password: "",      // để trống nếu không đổi
-        password2: "",     // xác nhận mật khẩu mới
+        password: "",
+        password2: "",
         status: 1,
         role: "",
     });
@@ -28,7 +30,7 @@ export default function EditUserPage() {
         let alive = true;
 
         if (!id || Number.isNaN(Number(id))) {
-            setErr("Missing or invalid user id");
+            showError("Thiếu hoặc ID người dùng không hợp lệ.");
             setLoading(false);
             return () => { alive = false; };
         }
@@ -45,21 +47,21 @@ export default function EditUserPage() {
                     role: data?.role ?? "",
                 });
             } catch (e) {
-                if (alive) setErr(e?.message || "Fetch failed");
+                if (alive) showError(extractErr(e) || "Không tải được dữ liệu.");
             } finally {
                 if (alive) setLoading(false);
             }
         })();
 
         return () => { alive = false; };
-    }, [id]);
+    }, [id, showError]);
 
     const onChange = (e) => {
         const { name, value } = e.target;
         setForm((s) => ({ ...s, [name]: name === "status" ? Number(value) : value }));
     };
 
-    // ===== Realtime validation (giống Profile) =====
+    // ===== Realtime validation =====
     const trimmed = (form.password || "").trim();
     const trimmed2 = (form.password2 || "").trim();
 
@@ -67,8 +69,6 @@ export default function EditUserPage() {
     const pwMismatch = (!!trimmed || !!trimmed2) && trimmed !== trimmed2;
     const pwMatchOk = !!trimmed && !!trimmed2 && trimmed === trimmed2 && !pwTooShort;
 
-    // Nếu trống => cho phép lưu (không đổi mật khẩu).
-    // Nếu nhập => phải hợp lệ.
     const formInvalid = pwTooShort || pwMismatch;
 
     const fgClass = (error, success) => {
@@ -79,36 +79,32 @@ export default function EditUserPage() {
 
     const onSubmit = async (e) => {
         e.preventDefault();
-        if (isAdmin) return; // không cho sửa admin
-
+        if (isAdmin) {
+            showError("Không thể chỉnh sửa tài khoản Admin.");
+            return;
+        }
         if (formInvalid) {
-            setErr("Vui lòng sửa lỗi ở phần mật khẩu trước khi lưu.");
+            showError("Vui lòng sửa lỗi ở phần mật khẩu trước khi lưu.");
             return;
         }
 
         try {
             setSaving(true);
-            setErr(null);
 
             const payload = {
                 UserId: Number(id),
                 Status: form.status,
             };
-
-            // Không đổi -> không gửi Password
-            if (trimmed) {
-                payload.Password = trimmed;
-            }
+            if (trimmed) payload.Password = trimmed;
 
             await updateUser(Number(id), payload);
 
-            // điều hướng về danh sách kèm thông báo (toast sẽ hiển thị ở trang đích nếu bạn đã cấu hình)
             navigate("/users", {
                 state: { notice: "Cập nhật thành công." },
                 replace: true,
             });
         } catch (e) {
-            setErr(e?.message || "Update failed");
+            showError(extractErr(e) || "Cập nhật thất bại.");
         } finally {
             setSaving(false);
         }
@@ -139,9 +135,8 @@ export default function EditUserPage() {
 
                     <div className="box-body">
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <p className="text-red">Lỗi: {err}</p>}
 
-                        {!loading && !err && (
+                        {!loading && (
                             <form onSubmit={onSubmit}>
                                 {isAdmin && (
                                     <div className="alert alert-warning">
@@ -149,7 +144,7 @@ export default function EditUserPage() {
                                     </div>
                                 )}
 
-                                {/* Email: chỉ hiển thị, không cho sửa */}
+                                {/* Email: chỉ hiển thị */}
                                 <div className="form-group">
                                     <label>Email</label>
                                     <input
@@ -239,6 +234,9 @@ export default function EditUserPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

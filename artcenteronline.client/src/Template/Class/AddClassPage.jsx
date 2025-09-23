@@ -5,6 +5,9 @@ import { useNavigate, Link } from "react-router-dom";
 import { createClass } from "./classes";
 import { getTeachers } from "../Teacher/Teachers";
 import { useAuth } from "../../auth/authCore";
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function AddClassPage() {
     const navigate = useNavigate();
@@ -12,6 +15,8 @@ export default function AddClassPage() {
     const roles = auth.roles || [];
     const isAdmin = auth.isAdmin ?? roles.includes("Admin");
     const isLoggedIn = !!auth?.user || !!auth?.token;
+
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const [form, setForm] = useState({
         className: "",
@@ -22,18 +27,21 @@ export default function AddClassPage() {
     });
     const [teachers, setTeachers] = useState([]);
     const [saving, setSaving] = useState(false);
-    const [error, setError] = useState("");
 
-    // Guard: chưa đăng nhập -> về login; không phải Admin -> báo lỗi và không load data
+    // Modal xác nhận
+    const [confirmOpen, setConfirmOpen] = useState(false);
+
+    // Guard
     useEffect(() => {
         if (!isLoggedIn) {
             navigate("/login", { replace: true, state: { flash: "Vui lòng đăng nhập để tiếp tục." } });
             return;
         }
         if (!isAdmin) {
-            setError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
+            showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
         }
-    }, [isLoggedIn, isAdmin, navigate]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoggedIn, isAdmin]);
 
     useEffect(() => {
         if (!isLoggedIn || !isAdmin) return;
@@ -43,10 +51,11 @@ export default function AddClassPage() {
                 const ts = await getTeachers();
                 if (alive) setTeachers(Array.isArray(ts) ? ts : []);
             } catch (e) {
-                if (alive) setError(e?.message || "Failed to load teachers");
+                if (alive) showError(extractErr(e) || "Không tải được danh sách giáo viên.");
             }
         })();
         return () => { alive = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoggedIn, isAdmin]);
 
     function onChange(e) {
@@ -54,13 +63,31 @@ export default function AddClassPage() {
         setForm((f) => ({ ...f, [name]: name === "status" ? Number(value) : value }));
     }
 
-    async function onSubmit(e) {
+    function validate() {
+        if (!form.className.trim()) return "Vui lòng nhập Tên lớp.";
+        if (form.branch && form.branch.length > 100) return "Tên cơ sở quá dài (tối đa 100 ký tự).";
+        const st = Number(form.status);
+        if (st !== 0 && st !== 1) return "Trạng thái không hợp lệ.";
+        if (form.mainTeacherId && isNaN(Number(form.mainTeacherId))) return "Giáo viên chính không hợp lệ.";
+        return "";
+    }
+
+    function onSubmit(e) {
         e.preventDefault();
+        const v = validate();
+        if (v) { showError(v); return; }
+        setConfirmOpen(true);
+    }
+
+    async function doCreate() {
         if (!isAdmin) {
-            setError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
+            showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
             return;
         }
-        setError(""); setSaving(true);
+        const v = validate();
+        if (v) { showError(v); return; }
+
+        setSaving(true);
         try {
             await createClass({
                 className: form.className.trim(),
@@ -69,11 +96,13 @@ export default function AddClassPage() {
                 status: Number(form.status),
                 mainTeacherId: form.mainTeacherId ? Number(form.mainTeacherId) : null,
             });
-            navigate("/classes", { state: { flash: "Tạo lớp thành công!" } });
-        } catch (err) {
-            setError(err.userMessage || err.message || "Failed to create class");
+            // thành công: điều hướng và để trang đích show success (giống Schedule)
+            navigate("/classes", { state: { notice: "Tạo lớp thành công!" } });
+        } catch (e) {
+            showError(extractErr(e) || "Failed to create class");
         } finally {
             setSaving(false);
+            setConfirmOpen(false);
         }
     }
 
@@ -94,28 +123,35 @@ export default function AddClassPage() {
                         <h3 className="box-title">Thông tin lớp học mới</h3>
                     </div>
 
-                    {error && (
-                        <div className="box-body">
-                            <div className="alert alert-danger" style={{ whiteSpace: "pre-wrap" }}>{error}</div>
-                        </div>
-                    )}
-
                     {isAdmin ? (
                         <form className="form-horizontal" onSubmit={onSubmit}>
                             <div className="box-body">
                                 <div className="form-group">
                                     <label className="col-sm-2 control-label">Tên lớp</label>
                                     <div className="col-sm-10">
-                                        <input type="text" className="form-control" name="className"
-                                            value={form.className} onChange={onChange} required placeholder="e.g. Watercolor Basics" />
+                                        <input
+                                            type="text"
+                                            className="form-control"
+                                            name="className"
+                                            value={form.className}
+                                            onChange={onChange}
+                                            required
+                                            placeholder="e.g. Watercolor Basics"
+                                        />
                                     </div>
                                 </div>
 
                                 <div className="form-group">
                                     <label className="col-sm-2 control-label">Cơ sở</label>
                                     <div className="col-sm-10">
-                                        <input type="text" className="form-control" name="branch"
-                                            value={form.branch} onChange={onChange} placeholder="Campus / Facility name" />
+                                        <input
+                                            type="text"
+                                            className="form-control"
+                                            name="branch"
+                                            value={form.branch}
+                                            onChange={onChange}
+                                            placeholder="Campus / Facility name"
+                                        />
                                     </div>
                                 </div>
 
@@ -123,15 +159,53 @@ export default function AddClassPage() {
                                     <label className="col-sm-2 control-label">Trạng thái</label>
                                     <div className="col-sm-10">
                                         <label className="radio-inline">
-                                            <input type="radio" name="status" value={1}
-                                                checked={Number(form.status) === 1} onChange={onChange} /> Đang hoạt động
+                                            <input
+                                                type="radio"
+                                                name="status"
+                                                value={1}
+                                                checked={Number(form.status) === 1}
+                                                onChange={onChange}
+                                            />{" "}
+                                            Đang hoạt động
                                         </label>
                                         <label className="radio-inline" style={{ marginLeft: 15 }}>
-                                            <input type="radio" name="status" value={0}
-                                                checked={Number(form.status) === 0} onChange={onChange} /> Dừng hoạt động
+                                            <input
+                                                type="radio"
+                                                name="status"
+                                                value={0}
+                                                checked={Number(form.status) === 0}
+                                                onChange={onChange}
+                                            />{" "}
+                                            Dừng hoạt động
                                         </label>
                                     </div>
                                 </div>
+
+                                {/* Nếu cần dropdown giáo viên chính, mở comment này:
+                <div className="form-group">
+                  <label className="col-sm-2 control-label">Giáo viên chính</label>
+                  <div className="col-sm-10">
+                    <select
+                      className="form-control"
+                      name="mainTeacherId"
+                      value={form.mainTeacherId}
+                      onChange={onChange}
+                    >
+                      <option value="">-- Không chọn --</option>
+                      {teachers.map(t => {
+                        const idv = t.teacherId ?? t.TeacherId;
+                        const name = t.teacherName ?? t.fullName ?? t.FullName ?? `(GV #${idv})`;
+                        const st = (t.status ?? t.Status ?? (t.isActive ? 1 : 0));
+                        const disabled = st !== 1;
+                        return (
+                          <option key={idv} value={idv} disabled={disabled}>
+                            {name}{disabled ? " [Ngừng]" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div> */}
                             </div>
 
                             <div className="box-footer">
@@ -150,6 +224,23 @@ export default function AddClassPage() {
                     )}
                 </div>
             </section>
+
+            {/* Modal xác nhận ở giữa màn hình, tiêu đề in đậm */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type="primary"
+                title="Xác nhận tạo lớp học"
+                message={`Tạo lớp "${form.className.trim() || "(chưa đặt tên)"}"?`}
+                details="Bạn có thể chỉnh sửa thông tin lớp sau khi tạo."
+                confirmText="Tạo lớp"
+                cancelText="Xem lại"
+                onCancel={() => setConfirmOpen(false)}
+                onConfirm={doCreate}
+                busy={saving}
+            />
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

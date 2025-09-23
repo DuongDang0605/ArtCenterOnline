@@ -4,6 +4,10 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getStudents } from "./students";
 import { useAuth } from "../../auth/authCore";
 
+// 🔁 Đồng bộ theo AddClassPage:
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
+
 export default function StudentsPage() {
     const { roles = [] } = useAuth();
     const isAdmin = roles.includes("Admin");
@@ -11,29 +15,24 @@ export default function StudentsPage() {
     const navigate = useNavigate();
     const location = useLocation();
 
+    const { showError, showSuccess, Toasts } = useToasts();
+
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
-
-    // === Toast thành công giống các trang khác ===
-    const [notice, setNotice] = useState(location.state?.notice || "");
-    useEffect(() => {
-        if (location.state?.notice) {
-            // clear route state để F5 không lặp lại
-            setTimeout(() => {
-                navigate(".", { replace: true, state: {} });
-            }, 0);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    useEffect(() => {
-        if (!notice) return;
-        const t = setTimeout(() => setNotice(""), 4000);
-        return () => clearTimeout(t);
-    }, [notice]);
 
     const tableRef = useRef(null);
     const dtRef = useRef(null);
+
+    // Nhận notice từ các trang khác chuyển về (giống AddClassPage → ClassesPage pattern)
+    useEffect(() => {
+        const notice = location.state?.notice;
+        if (notice) {
+            showSuccess(notice);
+            // clear route state để F5 không lặp lại
+            navigate(".", { replace: true, state: {} });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Chuẩn hóa từng item từ API (hỗ trợ nhiều key khác nhau)
     const normalizeItem = (x, i) => {
@@ -104,17 +103,20 @@ export default function StudentsPage() {
                 const normalized = arr.map((x, i) => normalizeItem(x, i));
                 setRows(normalized);
             } catch (e) {
-                if (alive) setErr(e?.message || "Fetch failed");
+                showError(extractErr(e) || "Không tải được danh sách học viên.");
             } finally {
                 if (alive) setLoading(false);
             }
         })();
-        return () => { alive = false; };
+        return () => {
+            alive = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Init DataTable
     useEffect(() => {
-        if (loading || err) return;
+        if (loading) return;
 
         const $ = window.jQuery || window.$;
         const el = tableRef.current;
@@ -154,7 +156,7 @@ export default function StudentsPage() {
                 { targets: 0, width: 80 },    // ID
                 { targets: 1, width: 200 },   // User Email
                 { targets: 7, width: 120 },   // Số buổi đã học
-                { targets: 8, width: 120 },   // Số buổi còn lại
+                { targets: 8, width: 120 },   // Số buổi đã đóng
                 { targets: 9, width: 120 },   // Trạng thái
                 { targets: 10, width: 200 },  // Hành động
             ],
@@ -172,26 +174,17 @@ export default function StudentsPage() {
         return () => {
             window.removeEventListener("resize", onResize);
             obs.disconnect();
-            try { dt.destroy(true); } catch { /* empty */ }
+            try {
+                dt.destroy(true);
+            } catch {
+                /* empty */
+            }
             dtRef.current = null;
         };
-    }, [loading, err, rows]);
+    }, [loading, rows]);
 
     return (
         <>
-            {/* Toast thành công (tự ẩn sau 4s) */}
-            {notice && (
-                <div
-                    className="alert alert-success"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setNotice("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {notice}
-                </div>
-            )}
-
             <section className="content-header">
                 <h1>Danh sách học viên</h1>
                 <ol className="breadcrumb">
@@ -208,9 +201,8 @@ export default function StudentsPage() {
 
                     <div className="box-body">
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <div className="alert alert-danger">{err}</div>}
 
-                        {!loading && !err && (
+                        {!loading && (
                             <div className="table-responsive">
                                 <table
                                     id="StudentsTable"
@@ -278,6 +270,9 @@ export default function StudentsPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

@@ -4,19 +4,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import http from "../../api/http";
 import { cancelMyTuitionRequest, getMyTuitionRequests } from "../../api/tuition";
 import ConfirmDialog from "../../component/ConfirmDialog";
-
-/** Đồng bộ format lỗi như bên Schedule */
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra."
-    );
-}
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 function fmt(dt) {
     if (!dt) return "";
@@ -27,57 +16,33 @@ export default function StudentTuitionRequestsPage() {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // Toast lỗi
-    const AUTO_DISMISS = 5000;
-    const [err, setErr] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    function showError(msg) {
-        const t = String(msg || "");
-        setErr(t);
-        if (t) setRemaining(AUTO_DISMISS);
-    }
-    useEffect(() => {
-        if (!err) return;
-        const startedAt = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
-            setRemaining(left);
-            if (left === 0) setErr("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [err]);
-
-    // Toast thành công
+    // Hệ thống Toasts đồng bộ
+    const { showError, showSuccess, Toasts } = useToasts();
     const location = useLocation();
     const navigate = useNavigate();
-    const [notice, setNotice] = useState(location.state?.notice || "");
+
+    // Nhận notice từ trang tạo yêu cầu, hiển thị toast success rồi clear state
     useEffect(() => {
-        if (location.state?.notice) {
-            setTimeout(() => navigate(".", { replace: true, state: {} }), 0);
+        const notice = location.state?.notice;
+        if (notice) {
+            showSuccess(notice);
+            navigate(".", { replace: true, state: {} });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    useEffect(() => {
-        if (!notice) return;
-        const t = setTimeout(() => setNotice(""), 4000);
-        return () => clearTimeout(t);
-    }, [notice]);
 
     async function load() {
         setLoading(true);
         try {
             const { data } = await getMyTuitionRequests();
-            setRows(data || []);
+            setRows(Array.isArray(data) ? data : []);
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Có lỗi xảy ra.");
         } finally {
             setLoading(false);
         }
     }
-
-    useEffect(() => {
-        load();
-    }, []);
+    useEffect(() => { load(); }, []);
 
     // Modal xác nhận hủy
     const [confirmOpen, setConfirmOpen] = useState(false);
@@ -94,10 +59,10 @@ export default function StudentTuitionRequestsPage() {
         setCancelBusy(true);
         try {
             await cancelMyTuitionRequest(cancelTargetId);
-            setNotice("Đã hủy yêu cầu.");
+            showSuccess("Đã hủy yêu cầu.");
             await load();
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Hủy yêu cầu thất bại.");
         } finally {
             setCancelBusy(false);
             setConfirmOpen(false);
@@ -105,33 +70,20 @@ export default function StudentTuitionRequestsPage() {
         }
     }
 
-    // >>> Cách A: tải ảnh qua axios (có Authorization), rồi mở bằng blob
+    // Tải ảnh qua axios (có Authorization), mở blob
     async function openImage(id) {
         try {
             const res = await http.get(`/tuitionrequests/${id}/image`, { responseType: "blob" });
             const url = URL.createObjectURL(res.data);
             window.open(url, "_blank");
         } catch (e) {
-            const msg = e?.response?.status === 401 ? "Bạn cần đăng nhập để xem ảnh." : extractErr(e);
+            const msg = e?.response?.status === 401 ? "Bạn cần đăng nhập để xem ảnh." : (extractErr(e) || "Không tải được ảnh.");
             showError(msg);
         }
     }
 
     return (
         <>
-            {/* Toast thành công */}
-            {notice && (
-                <div
-                    className="alert alert-success"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setNotice("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {notice}
-                </div>
-            )}
-
             <section className="content-header">
                 <h1>Đóng tiền học — Lịch sử yêu cầu</h1>
             </section>
@@ -143,6 +95,7 @@ export default function StudentTuitionRequestsPage() {
                             <i className="fa fa-plus" /> Tạo yêu cầu mới
                         </Link>
                     </div>
+
                     <div className="box-body table-responsive">
                         {loading ? (
                             <div className="p-3">Đang tải…</div>
@@ -192,28 +145,7 @@ export default function StudentTuitionRequestsPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi */}
-            {err && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setErr("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{ height: "100%", width: `${(remaining / AUTO_DISMISS) * 100}%`, background: "#a94442", transition: "width 100ms linear" }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Modal xác nhận hủy — đẹp hơn */}
+            {/* Modal xác nhận hủy — đồng bộ ConfirmDialog */}
             <ConfirmDialog
                 open={confirmOpen}
                 type="danger"
@@ -231,6 +163,8 @@ export default function StudentTuitionRequestsPage() {
                 busy={cancelBusy}
             />
 
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

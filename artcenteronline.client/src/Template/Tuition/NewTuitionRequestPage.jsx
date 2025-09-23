@@ -3,47 +3,17 @@ import { useEffect, useState } from "react";
 import { createTuitionRequest } from "../../api/tuition";
 import { useNavigate, Link } from "react-router-dom";
 import ConfirmDialog from "../../component/ConfirmDialog";
-
-/** Đồng nhất format lỗi như bên Schedule */
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra khi gửi yêu cầu."
-    );
-}
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function NewTuitionRequestPage() {
     const [file, setFile] = useState(null);
     const [preview, setPreview] = useState("");
     const [busy, setBusy] = useState(false);
-
-    // Toast lỗi
-    const AUTO_DISMISS = 5000;
-    const [err, setErr] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    function showError(msg) {
-        const t = String(msg || "");
-        setErr(t);
-        if (t) setRemaining(AUTO_DISMISS);
-    }
-    useEffect(() => {
-        if (!err) return;
-        const startedAt = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
-            setRemaining(left);
-            if (left === 0) setErr("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [err]);
-
-    // Modal xác nhận
     const [confirmOpen, setConfirmOpen] = useState(false);
+
+    // Toasts đồng bộ hệ thống (success + error)
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const navigate = useNavigate();
 
@@ -77,31 +47,46 @@ export default function NewTuitionRequestPage() {
         setBusy(true);
         try {
             await createTuitionRequest(file);
+            // điều hướng về danh sách, trang đích sẽ hiển thị success từ notice
             navigate("/student/tuition/requests", {
                 state: { notice: "Đã gửi yêu cầu. Vui lòng chờ duyệt." },
                 replace: true,
             });
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Có lỗi xảy ra khi gửi yêu cầu.");
         } finally {
             setBusy(false);
             setConfirmOpen(false);
         }
     }
 
+    // dọn URL blob khi rời trang / đổi ảnh
+    useEffect(() => {
+        return () => {
+            if (preview) URL.revokeObjectURL(preview);
+        };
+    }, [preview]);
+
     return (
         <>
             <section className="content-header">
                 <h1>Đóng tiền học — Tạo yêu cầu mới</h1>
             </section>
+
             <section className="content">
                 <div className="box">
                     <form onSubmit={onSubmit}>
                         <div className="box-body">
                             <div className="form-group">
                                 <label>Ảnh minh chứng (JPG/PNG, ≤ 5MB)</label>
-                                <input type="file" className="form-control" accept="image/*" onChange={onPick} />
+                                <input
+                                    type="file"
+                                    className="form-control"
+                                    accept="image/*"
+                                    onChange={onPick}
+                                />
                             </div>
+
                             {preview && (
                                 <div className="form-group">
                                     <label>Preview</label>
@@ -109,12 +94,17 @@ export default function NewTuitionRequestPage() {
                                         <img
                                             src={preview}
                                             alt="preview"
-                                            style={{ maxWidth: 320, borderRadius: 6, border: "1px solid #ccc" }}
+                                            style={{
+                                                maxWidth: 320,
+                                                borderRadius: 6,
+                                                border: "1px solid #ccc",
+                                            }}
                                         />
                                     </div>
                                 </div>
                             )}
                         </div>
+
                         <div className="box-footer">
                             <button className="btn btn-primary" disabled={busy}>
                                 <i className="fa fa-paper-plane" /> Gửi yêu cầu
@@ -127,28 +117,7 @@ export default function NewTuitionRequestPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi */}
-            {err && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setErr("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{ height: "100%", width: `${(remaining / AUTO_DISMISS) * 100}%`, background: "#a94442", transition: "width 100ms linear" }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Modal xác nhận gửi — đẹp hơn */}
+            {/* Modal xác nhận gửi — đồng bộ ConfirmDialog */}
             <ConfirmDialog
                 open={confirmOpen}
                 type="primary"
@@ -161,6 +130,8 @@ export default function NewTuitionRequestPage() {
                 busy={busy}
             />
 
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

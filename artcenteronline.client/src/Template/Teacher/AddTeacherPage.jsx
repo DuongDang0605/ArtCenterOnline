@@ -1,51 +1,16 @@
 ﻿// src/Template/Teacher/AddTeacherPage.jsx
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createTeacher } from "./teachers";
 
-// ===== Toast error giống Schedule =====
-const AUTO_DISMISS = 5000;
-function useToast() {
-    const [msg, setMsg] = useState("");
-    const [remaining, setRemaining] = useState(0);
-
-    useEffect(() => {
-        if (!msg) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
-            setRemaining(left);
-            if (left === 0) setMsg("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [msg]);
-
-    return {
-        msg,
-        remaining,
-        show: (m) => {
-            setMsg(m || "Đã xảy ra lỗi.");
-            setRemaining(AUTO_DISMISS);
-        },
-        hide: () => setMsg(""),
-    };
-}
-
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra."
-    );
-}
+// 🔁 Đồng bộ theo AddClassPage:
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function AddTeacherPage() {
     const navigate = useNavigate();
-    const toast = useToast();
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const [form, setForm] = useState({
         Email: "",
@@ -56,9 +21,12 @@ export default function AddTeacherPage() {
     });
     const [saving, setSaving] = useState(false);
 
+    // Modal xác nhận tạo mới
+    const [confirmOpen, setConfirmOpen] = useState(false);
+
     const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-    // ===== Realtime validation =====
+    // ===== Realtime validation (giữ logic gốc) =====
     const email = (form.Email || "").trim();
     const emailInvalid = !!email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const pw = String(form.Password || "");
@@ -79,12 +47,24 @@ export default function AddTeacherPage() {
         return "";
     }
 
-    const formInvalid = !email || emailInvalid || !pw || pwTooShort || !String(form.TeacherName || "").trim() || !String(form.PhoneNumber || "").trim();
+    const formInvalid =
+        !email ||
+        emailInvalid ||
+        !pw ||
+        pwTooShort ||
+        !String(form.TeacherName || "").trim() ||
+        !String(form.PhoneNumber || "").trim();
 
-    async function onSubmit(e) {
+    function onSubmit(e) {
         e.preventDefault();
         const v = validate();
-        if (v) return toast.show(v);
+        if (v) { showError(v); return; }
+        setConfirmOpen(true); // mở xác nhận giống AddClassPage
+    }
+
+    async function doCreate() {
+        const v = validate();
+        if (v) { showError(v); return; }
 
         setSaving(true);
         try {
@@ -95,23 +75,25 @@ export default function AddTeacherPage() {
                 PhoneNumber: form.PhoneNumber.trim(),
                 status: Number(form.status),
             });
+            // Điều hướng và để trang đích hiển thị success (pattern đồng bộ)
             navigate("/teachers", { state: { notice: "Đã thêm giáo viên mới." } });
+            // Nếu muốn hiện toast ngay tại trang này, có thể bật:
+            // showSuccess("Đã thêm giáo viên mới.");
         } catch (e) {
-            toast.show(extractErr(e)); // 409 trùng email sẽ hiển thị ở đây
+            showError(extractErr(e) || "Có lỗi xảy ra.");
         } finally {
             setSaving(false);
+            setConfirmOpen(false);
         }
     }
 
     return (
-        <div>
+        <>
             <section className="content-header">
                 <h1>THÊM GIÁO VIÊN</h1>
                 <ol className="breadcrumb">
                     <li>
-                        <Link to="/">
-                            <i className="fa fa-dashboard" /> Trang chủ
-                        </Link>
+                        <Link to="/"><i className="fa fa-dashboard" /> Trang chủ</Link>
                     </li>
                     <li>
                         <Link to="/teachers">Giáo viên</Link>
@@ -210,31 +192,22 @@ export default function AddTeacherPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi */}
-            {toast.msg && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={toast.hide}>
-                        <span>&times;</span>
-                    </button>
-                    {toast.msg}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
-                                transition: "width 100ms linear",
-                                background: "#a94442",
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-        </div>
+            {/* Modal xác nhận ở giữa màn hình (đồng bộ AddClassPage) */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type="primary"
+                title="Xác nhận tạo giáo viên"
+                message={`Tạo tài khoản cho "${(form.TeacherName || "").trim() || "giáo viên mới"}"?`}
+                details="Tài khoản có thể chỉnh sửa sau khi tạo."
+                confirmText="Tạo giáo viên"
+                cancelText="Xem lại"
+                onCancel={() => setConfirmOpen(false)}
+                onConfirm={doCreate}
+                busy={saving}
+            />
+
+            {/* Toasts dùng chung */}
+            <Toasts />
+        </>
     );
 }

@@ -5,6 +5,8 @@ import { listAllSessions } from "./sessions";
 import { getClasses } from "../Class/classes";
 import { getTeachers } from "../Teacher/teachers";
 import { useAuth } from "../../auth/authCore";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 function firstLastOfCurrentMonth() {
     const now = new Date();
@@ -14,7 +16,6 @@ function d2input(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padS
 function isoToDMY(iso) { if (!iso) return ""; const [y, m, d] = String(iso).split("-"); return `${d}/${m}/${y}`; }
 function dmyToISO(dmy) { if (!dmy) return ""; const parts = dmy.split("/"); if (parts.length !== 3) return ""; const [d, m, y] = parts; return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`; }
 function anyToISO(x) { if (!x) return ""; if (x instanceof Date) return d2input(x); if (typeof x === "string" && x.includes("-")) return x.slice(0, 10); return ""; }
-function pickErr(e) { return (e?.message || e?.response?.data?.message || e?.response?.data?.error || e?.response?.statusText || "Lỗi không xác định"); }
 function statusBadge(s) {
     const map = { 0: { text: "Chưa diễn ra", cls: "label-default" }, 1: { text: "Hoàn thành", cls: "label-success" }, 2: { text: "Hủy", cls: "label-danger" }, 3: { text: "NoShow", cls: "label-warning" }, 4: { text: "Dời lịch", cls: "label-info" } };
     return map[s] || { text: String(s), cls: "label-default" };
@@ -24,6 +25,8 @@ export default function SessionsPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const auth = useAuth();
+
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const roles = Array.isArray(auth?.roles) ? auth.roles : [];
     const isAdmin = roles.includes("Admin");
@@ -36,11 +39,11 @@ export default function SessionsPage() {
     const monthFirstISO = d2input(first);
     const monthLastISO = d2input(last);
 
-    // Teacher: mặc định xem cả THÁNG; Admin: mặc định cả tháng (như trước)
-    const [fromISO, setFromISO] = useState(isTeacher ? monthFirstISO : monthFirstISO);
-    const [toISO, setToISO] = useState(isTeacher ? monthLastISO : monthLastISO);
-    const [fromText, setFromText] = useState(isoToDMY(isTeacher ? monthFirstISO : monthFirstISO));
-    const [toText, setToText] = useState(isoToDMY(isTeacher ? monthLastISO : monthLastISO));
+    // Teacher & Admin: mặc định cả THÁNG
+    const [fromISO, setFromISO] = useState(monthFirstISO);
+    const [toISO, setToISO] = useState(monthLastISO);
+    const [fromText, setFromText] = useState(isoToDMY(monthFirstISO));
+    const [toText, setToText] = useState(isoToDMY(monthLastISO));
 
     const [classId, setClassId] = useState("");
     const [teacherId, setTeacherId] = useState(isTeacher ? String(myTeacherId || "") : "");
@@ -51,11 +54,16 @@ export default function SessionsPage() {
     const [rows, setRows] = useState([]);
 
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState("");
 
-    const [notice, setNotice] = useState(location.state?.notice || "");
-    useEffect(() => { if (location.state?.notice) { setTimeout(() => { navigate(".", { replace: true, state: {} }); }, 0); } }, []);
-    useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(""), 4000); return () => clearTimeout(t); }, [notice]);
+    // Nhận success từ trang khác (notice/flash) -> toast + clear state
+    useEffect(() => {
+        const n = location?.state?.notice || location?.state?.flash;
+        if (n) {
+            showSuccess(String(n));
+            setTimeout(() => navigate(location.pathname, { replace: true, state: {} }), 0);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // nạp lớp + giáo viên
     useEffect(() => {
@@ -76,19 +84,26 @@ export default function SessionsPage() {
                 });
                 list.sort((a, b) => a.name.localeCompare(b.name, "vi"));
                 setTeachers(list);
-            } catch (e) { if (alive) setErr(pickErr(e)); }
+            } catch (e) {
+                const s = e?.response?.status;
+                if (s === 401) {
+                    navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+                    return;
+                }
+                showError(extractErr(e) || "Không tải được dữ liệu.");
+            }
         })();
         return () => { alive = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     async function fetchData() {
-        setLoading(true); setErr("");
+        setLoading(true);
         try {
             const effectiveTeacherId = isTeacher
                 ? (myTeacherId ? Number(myTeacherId) : undefined)
                 : (teacherId ? Number(teacherId) : undefined);
 
-            // Teacher: cố định khoảng THÁNG; Admin: dùng from/to đang nhập
             const effectiveFrom = isTeacher ? monthFirstISO : fromISO;
             const effectiveTo = isTeacher ? monthLastISO : toISO;
 
@@ -100,8 +115,17 @@ export default function SessionsPage() {
                 status: status === "" ? undefined : Number(status),
             });
             setRows(Array.isArray(data) ? data : []);
-        } catch (e) { setErr(pickErr(e)); setRows([]); }
-        finally { setLoading(false); }
+        } catch (e) {
+            const s = e?.response?.status;
+            if (s === 401) {
+                navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+            } else {
+                showError(extractErr(e) || "Tải danh sách buổi học thất bại.");
+            }
+            setRows([]);
+        } finally {
+            setLoading(false);
+        }
     }
     useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [isTeacher, myTeacherId]);
 
@@ -126,15 +150,6 @@ export default function SessionsPage() {
 
     return (
         <>
-            {notice && (
-                <div className="alert alert-success" style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}>
-                    <button type="button" className="close" onClick={() => setNotice("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {notice}
-                </div>
-            )}
-
             <section className="content-header">
                 <h1>Tất cả buổi học</h1>
                 <small>{isTeacher ? "Giáo viên: xem tất cả buổi trong tháng của tôi" : "Xem/lọc toàn bộ buổi học theo khoảng ngày"}</small>
@@ -232,8 +247,6 @@ export default function SessionsPage() {
                     </div>
 
                     <div className="box-body table-responsive no-padding">
-                        {err && (<div className="alert alert-warning" style={{ margin: 10 }}>{String(err)}</div>)}
-
                         <table className="table table-bordered" style={{ margin: 0 }}>
                             <thead>
                                 <tr>
@@ -255,13 +268,10 @@ export default function SessionsPage() {
                                     const sid = r.sessionId ?? r.SessionId ?? r.id;
                                     const rowKey = sid ?? `${r.sessionDate}-${r.startTime}-${idx}`;
 
-                                    // Teacher: chỉ buổi HÔM NAY mới được điểm danh
                                     const isToday = anyToISO(r.sessionDate) === todayISO;
-                                    const teacherCanTakeToday = isTeacher && isToday;
 
-                                    // Admin: vẫn theo cửa sổ hôm nay → hết tháng
+                                    // Admin: sửa theo cửa sổ hôm nay → hết tháng
                                     const adminWindowOk = isAdmin && adminCanEditByDate(anyToISO(r.sessionDate));
-                                    const editable = isAdmin ? adminWindowOk : false;
 
                                     return (
                                         <tr key={rowKey}>
@@ -300,7 +310,6 @@ export default function SessionsPage() {
                                                     )}
                                                 </div>
                                             </td>
-
                                         </tr>
                                     );
                                 })}
@@ -309,6 +318,9 @@ export default function SessionsPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }
