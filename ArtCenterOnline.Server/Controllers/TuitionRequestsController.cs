@@ -117,6 +117,7 @@ namespace ArtCenterOnline.Server.Controllers
                     StudentName = "", // FE có thể hiển thị tên từ profile hiện tại
                     Email = x.EmailSnapshot,
                     Status = x.Status.ToString(),
+                    RejectReason = x.RejectReason,
                     CreatedAtUtc = x.CreatedAtUtc,
                     ReviewedAtUtc = x.ReviewedAtUtc
                 })
@@ -212,6 +213,7 @@ namespace ArtCenterOnline.Server.Controllers
                     Email = x.EmailSnapshot,
                     Status = x.Status.ToString(),
                     CreatedAtUtc = x.CreatedAtUtc,
+                    RejectReason = x.RejectReason,
                     ReviewedAtUtc = x.ReviewedAtUtc
                 })
                 .ToListAsync(ct);

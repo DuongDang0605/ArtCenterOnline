@@ -118,6 +118,13 @@ export default function Sidebar() {
                                             </Link>
                                         </li>
                                     )}
+                                    {isAdmin && (
+                                        <li>
+                                            <Link to="/bulk-withdraw">
+                                                <i className="fa fa-circle-o" /> Rời lớp và trung tâm hàng loạt
+                                            </Link>
+                                        </li>
+                                    )}
 
                                 </ul>
                             </li>

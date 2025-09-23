@@ -13,6 +13,7 @@ namespace ArtCenterOnline.Server.Model.DTO.Tuition
         public string Status { get; set; } = "";
         public DateTime CreatedAtUtc { get; set; }
         public DateTime? ReviewedAtUtc { get; set; }
+        public string? RejectReason { get; internal set; }
     }
 
     public sealed class TuitionRequestDetailDto

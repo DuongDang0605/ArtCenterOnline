@@ -101,10 +101,14 @@ export default function StudentCalendarPage() {
         const q = query.trim().toLowerCase();
         if (!q) return [];
         const arr = students.filter((st) => {
-            const name = getStudentName(st).toLowerCase();
-            const idStr = String(getStudentId(st) ?? "").toLowerCase();
-            return name.includes(q) || idStr.includes(q);
-        });
+                 // bỏ qua học viên đã nghỉ (Status = 0 hoặc isActive = false)
+                    const status = st.status ?? st.Status ?? st.isActive ?? 1;
+                if (!status) return false;
+            
+                    const name = getStudentName(st).toLowerCase();
+                 const idStr = String(getStudentId(st) ?? "").toLowerCase();
+                return name.includes(q) || idStr.includes(q);
+             });
         return arr.slice(0, 12); // giới hạn 12 dòng
     }, [students, query]);
 

@@ -95,11 +95,15 @@ export default function NewTuitionRequestPage() {
                                             src={preview}
                                             alt="preview"
                                             style={{
-                                                maxWidth: 320,
+                                                width: 320,
+                                                height: 480,
+                                                objectFit: "contain",
                                                 borderRadius: 6,
                                                 border: "1px solid #ccc",
+                                                backgroundColor: "#f9f9f9",
                                             }}
                                         />
+
                                     </div>
                                 </div>
                             )}

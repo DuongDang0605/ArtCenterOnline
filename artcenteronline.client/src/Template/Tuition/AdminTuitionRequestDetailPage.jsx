@@ -266,11 +266,16 @@ export default function AdminTuitionRequestDetailPage() {
                                                 src={previewUrl}
                                                 alt="tuition-proof"
                                                 style={{
-                                                    maxWidth: "100%",
+                                                    width: "100%",
+                                                    maxWidth: 360,
+                                                    height: 540,
+                                                    objectFit: "contain",
                                                     borderRadius: 6,
                                                     border: "1px solid #ddd",
+                                                    backgroundColor: "#f9f9f9",
                                                 }}
                                             />
+
                                         </div>
                                         <button className="btn btn-default" onClick={downloadOriginal}>
                                             <i className="fa fa-download" /> Tải ảnh gốc

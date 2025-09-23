@@ -110,6 +110,7 @@ export default function StudentTuitionRequestsPage() {
                                         <th>Ngày gửi</th>
                                         <th>Trạng thái</th>
                                         <th>Ngày xử lý</th>
+                                        <th>Lý do từ chối</th> 
                                         <th>Hành động</th>
                                     </tr>
                                 </thead>
@@ -126,6 +127,7 @@ export default function StudentTuitionRequestsPage() {
                                                 {r.status === "Canceled" && <span className="label label-default">Tự hủy</span>}
                                             </td>
                                             <td>{fmt(r.reviewedAtUtc)}</td>
+                                            <td>{r.rejectReason || ""}</td>
                                             <td style={{ whiteSpace: "nowrap" }}>
                                                 <button className="btn btn-xs btn-default" onClick={() => openImage(r.id)}>
                                                     <i className="fa fa-download" /> Tải ảnh

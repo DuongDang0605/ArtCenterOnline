@@ -62,3 +62,13 @@ export async function searchClasses(keyword) {
         throw enrichError(err);
     }
 }
+
+ export function getActiveStudentsForWithdraw(classId, { search = "", page = 1, pageSize = 20 } = {}) {
+       return http.get(`/Classes/${classId}/active-students-for-withdraw`, {
+ params: { search, page, pageSize },
+          });
+ }
+// Gửi yêu cầu bulk withdraw
+export function bulkWithdraw(classId, studentIds) {
+      return http.post(`/Classes/${classId}/bulk-withdraw`, { studentIds });
+    }
