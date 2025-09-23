@@ -122,7 +122,7 @@ public class ClassStudentsController : ControllerBase
     }
 
     // Danh sách học viên trong lớp — Admin & Teacher
-    // Danh sách học viên trong lớp — Admin & Teacher
+    // [GET] /api/ClassStudents/in-class/{classId}
     [HttpGet("in-class/{classId:int}")]
     [Authorize(Roles = "Admin,Teacher")]
     public async Task<ActionResult<IEnumerable<object>>> GetInClass(int classId)
@@ -131,6 +131,8 @@ public class ClassStudentsController : ControllerBase
             from cs in _db.ClassStudents
             join s in _db.Students on cs.StudentId equals s.StudentId
             join c in _db.Classes on cs.ClassID equals c.ClassID
+            join u_ in _db.Users on s.UserId equals u_.UserId into gj
+            from u in gj.DefaultIfEmpty() // LEFT JOIN
             where cs.ClassID == classId
             orderby s.StudentName
             select new
@@ -142,11 +144,12 @@ public class ClassStudentsController : ControllerBase
                 ClassName = c.ClassName,
                 StudentName = s.StudentName,
 
-                // ✅ Trả đủ các trường “ở giữa” mà bảng đang hiển thị
+                // Thông tin thêm cho FE/Export
                 ParentName = s.ParentName,
                 PhoneNumber = s.PhoneNumber,
-                Adress = s.Adress,          // (đúng chính tả theo model)
-                ngayBatDauHoc = s.ngayBatDauHoc, // (giữ tên y hệt model để FE đọc được)
+                Adress = s.Adress,
+                ngayBatDauHoc = s.ngayBatDauHoc,
+                userEmail = u != null ? u.Email : string.Empty,
 
                 // Trạng thái trong lớp
                 cs.IsActive,
@@ -157,6 +160,8 @@ public class ClassStudentsController : ControllerBase
         var data = await q.AsNoTracking().ToListAsync();
         return Ok(data);
     }
+   
+
 
     // Bật/tắt IsActive — Admin; Teacher nhận message rõ ràng
     [HttpPut("{classId:int}/{studentId:int}/active")]
@@ -405,6 +410,122 @@ public class ClassStudentsController : ControllerBase
         Response.Headers.Append(
             HeaderNames.ContentDisposition,
             $"attachment; filename=\"mau-import-hocvien-lop-{cls.ClassID}.xlsx\""
+        );
+
+        return File(
+            ms.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+    }
+
+    // ===== [GET] /api/ClassStudents/export-excel/{classId}?includeInactive=true|false =====
+    [HttpGet("export-excel/{classId:int}")]
+    [Authorize(Roles = "Admin,Teacher")]
+    public async Task<IActionResult> ExportStudentsInClassExcel(
+        int classId,
+        [FromQuery] bool includeInactive = false,
+        CancellationToken ct = default)
+    {
+        // 1) Lấy thông tin lớp
+        var cls = await _db.Classes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ClassID == classId, ct);
+        if (cls == null)
+            return NotFound(new { message = $"Không tìm thấy lớp #{classId}." });
+
+        // 2) Truy vấn DS học viên trong lớp + email (LEFT JOIN sang Users)
+        var query =
+            from cs in _db.ClassStudents
+            join s in _db.Students on cs.StudentId equals s.StudentId
+            join c in _db.Classes on cs.ClassID equals c.ClassID
+            join u_ in _db.Users on s.UserId equals u_.UserId into gj
+            from u in gj.DefaultIfEmpty()
+            where cs.ClassID == classId
+            select new
+            {
+                s.StudentId,
+                s.StudentName,
+                Email = u != null ? u.Email : "",
+                s.ParentName,
+                s.PhoneNumber,
+                s.Adress,
+                s.ngayBatDauHoc,
+                cs.JoinedDate,
+                cs.IsActive
+            };
+
+        if (!includeInactive)
+            query = query.Where(x => x.IsActive);
+
+        var rows = await query.AsNoTracking()
+                              .OrderBy(x => x.StudentName)
+                              .ToListAsync(ct);
+
+        // 3) Tạo workbook bằng ClosedXML
+        using var wb = new XLWorkbook();
+        var ws = wb.Worksheets.Add("StudentsInClass");
+
+        // Header thông tin lớp
+        ws.Cell(1, 1).Value = "Lớp:";
+        ws.Cell(1, 1).Style.Font.Bold = true;
+        ws.Cell(1, 2).Value = cls.ClassName;
+
+        ws.Cell(2, 1).Value = "Cơ sở:";
+        ws.Cell(2, 1).Style.Font.Bold = true;
+        ws.Cell(2, 2).Value = cls.Branch ?? "N/A";
+
+        ws.Cell(3, 1).Value = "Ngày xuất:";
+        ws.Cell(3, 1).Style.Font.Bold = true;
+        ws.Cell(3, 2).Value = DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+
+        ws.Cell(4, 1).Value = includeInactive
+            ? "Bao gồm học viên đã rời lớp: Có"
+            : "Bao gồm học viên đã rời lớp: Không";
+
+        // Dòng trống
+        int startRow = 6;
+
+        // Header bảng
+        string[] headers = new[]
+        {
+        "ID", "Tên học viên", "Email", "Tên phụ huynh", "SĐT",
+        "Địa chỉ", "Ngày nhập học", "Ngày vào lớp", "Trạng thái"
+    };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(startRow, i + 1).Value = headers[i];
+            ws.Cell(startRow, i + 1).Style.Font.Bold = true;
+            ws.Cell(startRow, i + 1).Style.Fill.BackgroundColor = XLColor.LightGray;
+            ws.Cell(startRow, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        }
+
+        // Data
+        int r = startRow + 1;
+        foreach (var x in rows)
+        {
+            ws.Cell(r, 1).Value = x.StudentId;
+            ws.Cell(r, 2).Value = x.StudentName ?? "";
+            ws.Cell(r, 3).Value = x.Email ?? "";
+            ws.Cell(r, 4).Value = x.ParentName ?? "";
+            ws.Cell(r, 5).Value = x.PhoneNumber ?? "";
+            ws.Cell(r, 6).Value = x.Adress ?? "";
+            ws.Cell(r, 7).Value = x.ngayBatDauHoc.ToString("dd/MM/yyyy");
+            ws.Cell(r, 8).Value = x.JoinedDate.ToString("dd/MM/yyyy");
+            ws.Cell(r, 9).Value = x.IsActive ? "Đang học" : "Ngừng học";
+            r++;
+        }
+
+        ws.Columns().AdjustToContents();
+
+        // 4) Xuất file về client
+        using var ms = new MemoryStream();
+        wb.SaveAs(ms);
+        ms.Position = 0;
+
+        Response.Headers.Remove(HeaderNames.ContentDisposition);
+        Response.Headers.Append(
+            HeaderNames.ContentDisposition,
+            $"attachment; filename=\"hocvien-lop-{cls.ClassID}.xlsx\""
         );
 
         return File(

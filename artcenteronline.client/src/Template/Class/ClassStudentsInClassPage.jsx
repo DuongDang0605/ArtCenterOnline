@@ -1,7 +1,7 @@
 ﻿// src/Template/Class/ClassStudentsInClassPage.jsx
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { getStudentsInClass, setClassStudentActive } from "../Class/classStudents";
+import { getStudentsInClass, setClassStudentActive, exportStudentsInClass } from "../Class/classStudents";
 import { getClass } from "../Class/classes";
 import { useAuth } from "../../auth/authCore";
 import ConfirmDialog from "../../component/ConfirmDialog";
@@ -13,6 +13,13 @@ function toVNDate(input) {
     const d = new Date(input);
     if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleDateString("vi-VN");
+}
+
+function getFilenameFromDisposition(disposition) {
+    if (!disposition) return null;
+    // ví dụ: attachment; filename="hocvien-lop-12.xlsx"
+    const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"?/i.exec(disposition);
+    return m ? decodeURIComponent(m[1]) : null;
 }
 
 export default function ClassStudentsInClassPage() {
@@ -67,6 +74,7 @@ export default function ClassStudentsInClassPage() {
                 const norm = arr.map((x, i) => ({
                     studentId: x.StudentId ?? x.studentId ?? i,
                     name: x.StudentName ?? x.studentName ?? "",
+                    email: x.userEmail ?? x.UserEmail ?? "", // <-- thêm email
                     parent: x.ParentName ?? x.parentName ?? "",
                     phone: x.PhoneNumber ?? x.phoneNumber ?? "",
                     address: x.adress ?? x.Adress ?? x.Address ?? "", // 'adress' legacy
@@ -86,7 +94,9 @@ export default function ClassStudentsInClassPage() {
                 if (alive) setLoading(false);
             }
         })();
-        return () => { alive = false; };
+        return () => {
+            alive = false;
+        };
     }, [classId, isLoggedIn, navigate]);
 
     // DataTable
@@ -97,7 +107,11 @@ export default function ClassStudentsInClassPage() {
         if (!el || !$.fn?.DataTable) return;
 
         if ($.fn.DataTable.isDataTable(el)) {
-            try { $(el).DataTable().destroy(); } catch { /* ignore */ }
+            try {
+                $(el).DataTable().destroy();
+            } catch {
+                /* ignore */
+            }
         }
 
         const timer = setTimeout(() => {
@@ -109,7 +123,7 @@ export default function ClassStudentsInClassPage() {
                 paging: true,
                 info: true,
                 pageLength: 10,
-                order: [[0, "asc"]],
+                order: [[1, "asc"]], // sort theo tên (cột 1: Tên học viên)
                 dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>tr<'row'<'col-sm-5'i><'col-sm-7'p>>",
                 language: {
                     decimal: ",",
@@ -127,8 +141,9 @@ export default function ClassStudentsInClassPage() {
                     aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
                 },
                 columnDefs: [
-                    { targets: 0, width: 80 },
-                    { targets: -1, width: 160, orderable: false },
+                    { targets: 0, width: 80 },   // ID
+                    { targets: 2, width: 220 },  // Email
+                    { targets: -1, width: 160, orderable: false }, // Hành động
                 ],
             });
 
@@ -148,7 +163,11 @@ export default function ClassStudentsInClassPage() {
 
         return () => {
             clearTimeout(timer);
-            try { $(el).DataTable().destroy(); } catch { /* ignore */ }
+            try {
+                (window.jQuery || window.$)(el).DataTable().destroy();
+            } catch {
+                /* ignore */
+            }
             dtRef.current = null;
         };
     }, [loading, rows]);
@@ -158,25 +177,28 @@ export default function ClassStudentsInClassPage() {
     const [confirmBusy, setConfirmBusy] = useState(false);
     const [target, setTarget] = useState({ id: null, curr: true, name: "" });
 
-    const askToggle = useCallback((studentId, curr, name) => {
+    const askToggle = useCallback(
+        (studentId, curr, name) => {
+            if (!isAdmin) {
+                showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
+                return;
+            }
+            // Luôn xác nhận cả khi TẮT lẫn BẬT
+            setTarget({ id: studentId, curr, name: name || `#${studentId}` });
+            setConfirmOpen(true);
+        },
+        [isAdmin, showError]
+    );
+
+    async function doToggle(studentId, curr, name) {
         if (!isAdmin) {
-            // giống ClassesPage: nút đã disabled; chặn thêm nếu bị thao tác thủ công
             showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
             return;
         }
-        // Luôn xác nhận cả khi TẮT lẫn BẬT
-        setTarget({ id: studentId, curr, name: name || `#${studentId}` });
-        setConfirmOpen(true);
-    }, [isAdmin, showError]);
-
-    async function doToggle(studentId, curr, name) {
-        if (!isAdmin) { showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin)."); return; }
         try {
             await setClassStudentActive(classId, studentId, !curr);
-            setRows(prev => prev.map(r => r.studentId === studentId ? ({ ...r, isActive: !curr }) : r));
-            showSuccess(curr
-                ? `Đã tắt trạng thái học viên ${name || `#${studentId}`}.`
-                : `Đã bật trạng thái học viên ${name || `#${studentId}`}.`);
+            setRows((prev) => prev.map((r) => (r.studentId === studentId ? { ...r, isActive: !curr } : r)));
+            showSuccess(curr ? `Đã tắt trạng thái học viên ${name || `#${studentId}`}.` : `Đã bật trạng thái học viên ${name || `#${studentId}`}.`);
         } catch (e) {
             const s = e?.response?.status;
             if (s === 401) {
@@ -198,13 +220,54 @@ export default function ClassStudentsInClassPage() {
         }
     }
 
+    // ======= Export Excel (ConfirmDialog riêng, căn giữa, đẹp) =======
+    const [exportConfirmOpen, setExportConfirmOpen] = useState(false);
+    const [exportBusy, setExportBusy] = useState(false);
+
+    async function handleExport(includeInactive) {
+        try {
+            setExportBusy(true);
+            const res = await exportStudentsInClass(classId, includeInactive);
+
+            const cd = res.headers?.["content-disposition"] || res.headers?.get?.("content-disposition");
+            const suggested = getFilenameFromDisposition(cd) || `hocvien-lop-${classId}.xlsx`;
+
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = suggested;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+
+            showSuccess(`Đã xuất Excel (${includeInactive ? "gồm cả đã rời lớp" : "chỉ đang học"}).`);
+        } catch (e) {
+            const s = e?.response?.status;
+            if (s === 401) {
+                navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+                return;
+            }
+            showError(extractErr(e) || "Xuất Excel thất bại.");
+        } finally {
+            setExportBusy(false);
+            setExportConfirmOpen(false);
+        }
+    }
+
     return (
         <>
             <section className="content-header">
                 <h1>Học viên trong lớp {classInfo?.className}</h1>
                 <ol className="breadcrumb">
-                    <li><a href="#"><i className="fa fa-dashboard" /> Trang chủ</a></li>
-                    <li><Link to="/classes">Lớp học</Link></li>
+                    <li>
+                        <a href="#">
+                            <i className="fa fa-dashboard" /> Trang chủ
+                        </a>
+                    </li>
+                    <li>
+                        <Link to="/classes">Lớp học</Link>
+                    </li>
                     <li className="active">Danh sách học viên</li>
                 </ol>
             </section>
@@ -214,6 +277,9 @@ export default function ClassStudentsInClassPage() {
                     <div className="box-header with-border" style={{ display: "flex", justifyContent: "space-between" }}>
                         <h3 className="box-title">Danh sách (có thể bật/tắt IsActive)</h3>
                         <div className="box-tools" style={{ display: "flex", gap: 8 }}>
+                            <button className="btn btn.success btn-sm btn-success" onClick={() => setExportConfirmOpen(true)}>
+                                <i className="fa fa-file-excel-o" /> Xuất Excel
+                            </button>
                             <button className="btn btn-default btn-sm" onClick={() => navigate(-1)}>
                                 <i className="fa fa-arrow-left" /> Quay lại
                             </button>
@@ -225,16 +291,12 @@ export default function ClassStudentsInClassPage() {
 
                         {!loading && (
                             <div className="table-responsive">
-                                <table
-                                    id="ClassStudentsTable"
-                                    ref={tableRef}
-                                    className="table table-bordered table-hover"
-                                    style={{ width: "100%" }}
-                                >
+                                <table id="ClassStudentsTable" ref={tableRef} className="table table-bordered table-hover" style={{ width: "100%" }}>
                                     <thead>
                                         <tr>
                                             <th>ID</th>
                                             <th>Tên học viên</th>
+                                            <th>Email</th>
                                             <th>Tên phụ huynh</th>
                                             <th>SĐT</th>
                                             <th>Địa chỉ</th>
@@ -245,35 +307,26 @@ export default function ClassStudentsInClassPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {rows.map(r => (
+                                        {rows.map((r) => (
                                             <tr key={r.studentId}>
                                                 <td>{r.studentId}</td>
                                                 <td>{r.name}</td>
+                                                <td>{r.email}</td>
                                                 <td>{r.parent}</td>
                                                 <td>{r.phone}</td>
                                                 <td>{r.address}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>{r.joinedDate}</td>
                                                 <td>
-                                                    <span className={`label ${r.isActive ? "label-success" : "label-default"}`}>
-                                                        {r.isActive ? "Đang học" : "Ngừng học"}
-                                                    </span>
+                                                    <span className={`label ${r.isActive ? "label-success" : "label-default"}`}>{r.isActive ? "Đang học" : "Ngừng học"}</span>
                                                 </td>
                                                 <td>
                                                     {isAdmin ? (
-                                                        <button
-                                                            className={`btn btn-xs ${r.isActive ? "btn-warning" : "btn-success"}`}
-                                                            onClick={() => askToggle(r.studentId, r.isActive, r.name)}
-                                                        >
+                                                        <button className={`btn btn-xs ${r.isActive ? "btn-warning" : "btn-success"}`} onClick={() => askToggle(r.studentId, r.isActive, r.name)}>
                                                             <i className="fa fa-toggle-on" /> {r.isActive ? "Nghỉ" : "Học"}
                                                         </button>
                                                     ) : (
-                                                        <button
-                                                            className="btn btn-default btn-xs disabled"
-                                                            disabled
-                                                            title="Chỉ Admin được bật/tắt"
-                                                            style={{ cursor: "not-allowed", opacity: .6 }}
-                                                        >
+                                                        <button className="btn btn-default btn-xs disabled" disabled title="Chỉ Admin được bật/tắt" style={{ cursor: "not-allowed", opacity: 0.6 }}>
                                                             <i className="fa fa-toggle-on" /> {r.isActive ? "Nghỉ" : "Học"}
                                                         </button>
                                                     )}
@@ -296,13 +349,11 @@ export default function ClassStudentsInClassPage() {
                 message={
                     target.curr ? (
                         <>
-                            Bạn sắp <b>tắt trạng thái</b> của học viên <b>{target.name}</b> trong lớp <b>{classInfo?.className}</b>.
-                            Học viên sẽ được đánh dấu <i>Ngừng học</i>. Tiếp tục?
+                            Bạn sắp <b>tắt trạng thái</b> của học viên <b>{target.name}</b> trong lớp <b>{classInfo?.className}</b>. Học viên sẽ được đánh dấu <i>Ngừng học</i>. Tiếp tục?
                         </>
                     ) : (
                         <>
-                            Bạn sắp <b>bật trạng thái</b> của học viên <b>{target.name}</b> trong lớp <b>{classInfo?.className}</b>.
-                            Học viên sẽ được đánh dấu <i>Đang học</i>. Tiếp tục?
+                            Bạn sắp <b>bật trạng thái</b> của học viên <b>{target.name}</b> trong lớp <b>{classInfo?.className}</b>. Học viên sẽ được đánh dấu <i>Đang học</i>. Tiếp tục?
                         </>
                     )
                 }
@@ -311,6 +362,23 @@ export default function ClassStudentsInClassPage() {
                 onCancel={() => !confirmBusy && setConfirmOpen(false)}
                 onConfirm={confirmProceed}
                 busy={confirmBusy}
+            />
+
+            {/* Modal xác nhận Export Excel — căn giữa, đẹp */}
+            <ConfirmDialog
+                open={exportConfirmOpen}
+                type="primary"
+                title="Xuất Excel"
+                message={
+                    <>
+                        Bạn có muốn <b>bao gồm cả học viên đã rời lớp</b> (IsActive = false) trong file Excel xuất ra không?
+                    </>
+                }
+                confirmText="Không, chỉ đang học"
+                cancelText="Có, bao gồm"
+                onCancel={() => !exportBusy && handleExport(true)}
+                onConfirm={() => !exportBusy && handleExport(false)}
+                busy={exportBusy}
             />
 
             {/* Toasts dùng chung */}

@@ -94,3 +94,11 @@ export async function downloadImportClassTemplate(classId) {
     }
 }
 
+export async function exportStudentsInClass(classId, includeInactive) {
+    const res = await http.get(`/ClassStudents/export-excel/${classId}`, {
+        params: { includeInactive: !!includeInactive },
+        responseType: "blob", // để nhận file nhị phân
+    });
+    return res; // trả nguyên response để lấy header filename
+}
+

@@ -102,20 +102,32 @@ public class StudentsController : ControllerBase
 
     [HttpGet("not-in-class/{classId:int}")]
     [Authorize(Roles = "Admin,Teacher")]
-    public async Task<ActionResult<IEnumerable<StudentInfo>>> GetActiveNotInClass(int classId)
+    public async Task<ActionResult<IEnumerable<object>>> GetActiveNotInClass(int classId)
     {
         var studentIdsInClass = await _db.ClassStudents
             .Where(cs => cs.ClassID == classId)
             .Select(cs => cs.StudentId)
             .ToListAsync();
 
-        var result = await _db.Students
+        var rows = await _db.Students
             .AsNoTracking()
+            .Include(s => s.User)
             .Where(s => s.Status == 1 && !studentIdsInClass.Contains(s.StudentId))
+            .Select(s => new {
+                studentId = s.StudentId,
+                studentName = s.StudentName,
+                parentName = s.ParentName,
+                phoneNumber = s.PhoneNumber,
+                adress = s.Adress,
+                ngayBatDauHoc = s.ngayBatDauHoc,
+                status = s.Status,
+                userEmail = s.User != null ? s.User.Email : ""
+            })
             .ToListAsync();
 
-        return Ok(result);
+        return Ok(rows);
     }
+
 
     // StudentsController.cs  (thêm DTO ngay trước action Create)
     public sealed class CreateStudentWithAccountDto : StudentInfo
