@@ -353,7 +353,8 @@ export default function AdminTuitionHistoryPage() {
                                             <th>Email</th>
                                             <th>Ngày gửi</th>
                                             <th>Trạng thái</th>
-                                            <th>Ngày xử lý</th>
+                                                    <th>Ngày xử lý</th>
+                                            <th>Lý do từ chối</th>
                                             <th>Chi tiết</th>
                                         </tr>
                                     </thead>
@@ -366,6 +367,7 @@ export default function AdminTuitionHistoryPage() {
                                                 <td>{fmt(r.createdAtUtc)}</td>
                                                 <td>{badge(r.status)}</td>
                                                 <td>{fmt(r.reviewedAtUtc)}</td>
+                                                <td>{r.rejectReason || ""}</td>
                                                 <td>
                                                     <Link className="btn btn-xs btn-default" to={`/admin/tuition/requests/${r.id}`}>
                                                         Xem

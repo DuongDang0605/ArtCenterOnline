@@ -173,6 +173,19 @@ namespace ArtCenterOnline.Server.Services.Reports
                 Value = Math.Round(x.present * 100.0 / x.total, 1)
             }).ToList();
 
+            // Có thể chạy song song cho nhanh, nhưng để dễ đọc, tách rõ ràng:
+            var totalStudents = await _ctx.Students.CountAsync(ct);
+            var activeStudents = await _ctx.Students.CountAsync(s => s.Status == 1, ct);
+
+            var totalClasses = await _ctx.Classes.CountAsync(ct);
+            var activeClasses = await _ctx.Classes.CountAsync(c => c.Status == 1, ct);
+
+            var totalTeachers = await _ctx.Teachers.CountAsync(ct);
+            var activeTeachers = await _ctx.Teachers.CountAsync(t => t.status == 1, ct);
+
+            var totalUsers = await _ctx.Users.CountAsync(ct);
+            var activeUsers = await _ctx.Users.CountAsync(u => u.IsActive, ct);
+
             // ===== Kết quả =====
             return new MonthlyOverviewDto
             {
@@ -200,7 +213,19 @@ namespace ArtCenterOnline.Server.Services.Reports
                 AttendanceSeries = attendanceSeries,
                 AttendanceSeriesPrev = attendanceSeriesPrev,
                 TopClassesByAttendance = topClasses,
-                TopTeachersByAttendance = topTeachers
+                TopTeachersByAttendance = topTeachers,
+
+                ActiveStudents = activeStudents,
+                TotalStudents = totalStudents,
+
+                ActiveClasses = activeClasses,
+                TotalClasses = totalClasses,
+
+                ActiveTeachers = activeTeachers,
+                TotalTeachers = totalTeachers,
+
+                ActiveUsers = activeUsers,
+                TotalUsers = totalUsers
             };
         }
 

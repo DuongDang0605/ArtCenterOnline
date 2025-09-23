@@ -54,11 +54,15 @@ export default function ClassSearchInput({
                 const res = await searchClasses(q);
                       if (!alive) return;
                       const arr = Array.isArray(res) ? res : [];
-                     const filtered = arr.filter(cls => {
-                           const name = String(cls.className ?? cls.ClassName ?? cls.name ?? "").toLowerCase();
-                            const idStr = String(cls.classId ?? cls.classID ?? cls.ClassID ?? cls.id ?? "").toLowerCase();
-                           return name.includes(q) || idStr.includes(q);
-                          }).slice(0, dropdownMax);
+                const filtered = arr.filter(cls => {
+                          // bỏ qua lớp bị tắt (Status = 0 hoặc falsey)
+                              const status = cls.status ?? cls.Status ?? cls.isActive ?? 1;
+                         if (!status) return false;
+                    
+                              const name = String(cls.className ?? cls.ClassName ?? cls.name ?? "").toLowerCase();
+                          const idStr = String(cls.classId ?? cls.classID ?? cls.ClassID ?? cls.id ?? "").toLowerCase();
+                          return name.includes(q) || idStr.includes(q);
+                     }).slice(0, dropdownMax);
                       setSuggestions(filtered);
             } finally {
                 if (alive) setLoading(false);

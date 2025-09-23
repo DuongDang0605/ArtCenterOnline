@@ -18,7 +18,7 @@ function toVNDate(input) {
 function getFilenameFromDisposition(disposition) {
     if (!disposition) return null;
     // ví dụ: attachment; filename="hocvien-lop-12.xlsx"
-    const m = /filename\*?=(?:UTF-8''|")?([^\";]+)"?/i.exec(disposition);
+    const m = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(disposition);
     return m ? decodeURIComponent(m[1]) : null;
 }
 

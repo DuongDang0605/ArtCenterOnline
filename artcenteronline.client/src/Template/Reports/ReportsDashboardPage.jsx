@@ -1035,7 +1035,61 @@ export default function ReportsDashboardPage() {
                     </div>
                 )}
 
-
+                {data && (
+                    <div className="box">
+                        <div className="box-header with-border">
+                            <h3 className="box-title">Báo cáo tổng quan</h3>
+                        </div>
+                        <div className="box-body">
+                            <div className="row">
+                                <Kpi
+                                    color="bg-info"
+                                    icon="fa-users"
+                                    title="Học sinh đang hoạt động / tổng"
+                                    value={`${num(data?.activeStudents ?? 0, 0)}/${num(data?.totalStudents ?? 0, 0)}`}
+                                    sub={
+                                        <small className="text-light">
+                                            {pct(((data?.activeStudents ?? 0) * 100) / Math.max(1, (data?.totalStudents ?? 0)), 0)} đang hoạt động
+                                        </small>
+                                    }
+                                />
+                                <Kpi
+                                    color="bg-success"
+                                    icon="fa-university"
+                                    title="Lớp đang hoạt động / tổng"
+                                    value={`${num(data?.activeClasses ?? 0, 0)}/${num(data?.totalClasses ?? 0, 0)}`}
+                                    sub={
+                                        <small className="text-light">
+                                            {pct(((data?.activeClasses ?? 0) * 100) / Math.max(1, (data?.totalClasses ?? 0)), 0)} đang hoạt động
+                                        </small>
+                                    }
+                                />
+                                <Kpi
+                                    color="bg-warning"
+                                    icon="fa-user"
+                                    title="Giáo viên đang hoạt động / tổng"
+                                    value={`${num(data?.activeTeachers ?? 0, 0)}/${num(data?.totalTeachers ?? 0, 0)}`}
+                                    sub={
+                                        <small className="text-light">
+                                            {pct(((data?.activeTeachers ?? 0) * 100) / Math.max(1, (data?.totalTeachers ?? 0)), 0)} đang hoạt động
+                                        </small>
+                                    }
+                                />
+                                <Kpi
+                                    color="bg-danger"
+                                    icon="fa-user-circle-o"
+                                    title="Tài khoản đang hoạt động / tổng"
+                                    value={`${num(data?.activeUsers ?? 0, 0)}/${num(data?.totalUsers ?? 0, 0)}`}
+                                    sub={
+                                        <small className="text-light">
+                                            {pct(((data?.activeUsers ?? 0) * 100) / Math.max(1, (data?.totalUsers ?? 0)), 0)} đang hoạt động
+                                        </small>
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* ===== Tổng quan tháng (4 KPI) — GIỮ NGUYÊN ===== */}
                 {data && (
                     <div className="box">

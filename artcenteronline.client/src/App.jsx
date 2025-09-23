@@ -35,7 +35,7 @@ import EditSessionPage from "./Template/Session/EditSessionPage.jsx";
 import SessionAttendancePage from "./Template/Session/SessionAttendancePage.jsx";
 import ImportStudentsExcelPage from "./Template/Student/ImportStudentsExcelPage.jsx";
 import ImportClassStudentsExcelPage from "./Template/Class/ImportClassStudentsExcelPage";
-
+import BulkWithdrawPage from "./Template/Class/BulkWithdrawPage";
 
 
 import ProfilePage from "./Template/Profile/ProfilePage";
@@ -198,6 +198,14 @@ export default function App() {
                             element={
                                 <RequireRole roles={["Admin"]}>
                                     <AddEditSchedulePage mode="edit" />
+                                </RequireRole>
+                            }
+                        />
+                        <Route
+                            path="/bulk-withdraw"
+                            element={
+                                <RequireRole roles={["Admin"]}>
+                                    <BulkWithdrawPage />
                                 </RequireRole>
                             }
                         />

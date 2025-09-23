@@ -1,9 +1,12 @@
 ﻿// Controllers/ClassesController.cs
 using ArtCenterOnline.Server.Data;
 using ArtCenterOnline.Server.Model;
+using ArtCenterOnline.Server.Model.DTO;
+using DocumentFormat.OpenXml.Spreadsheet;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 #nullable enable
 
@@ -174,5 +177,191 @@ public class ClassesController : ControllerBase
         await _db.SaveChangesAsync(ct);
         return sessions.Count;
     }
+
+    [HttpGet("{classId}/active-students-for-withdraw")]
+    public async Task<ActionResult<ActiveStudentsForWithdrawDto>> GetActiveStudentsForWithdraw(
+       int classId,
+       [FromQuery] string? search,
+       [FromQuery] int page = 1,
+       [FromQuery] int pageSize = 20)
+    {
+        if (page < 1) page = 1;
+        if (pageSize <= 0 || pageSize > 100) pageSize = 20;
+
+        // Lấy tổng HS đang active trong lớp (không áp dụng search để tính y)
+        var baseInClassQuery = _db.ClassStudents
+            .Where(cs => cs.ClassID == classId && cs.IsActive);
+
+        var totalActiveInClass = await baseInClassQuery.CountAsync();
+
+        // Join sang StudentInfo và UserInfo để lấy email
+        var q = from cs in _db.ClassStudents
+                where cs.ClassID == classId && cs.IsActive
+                join s in _db.Students on cs.StudentId equals s.StudentId
+                join u in _db.Users on s.UserId equals u.UserId
+                select new
+                {
+                    StudentId = s.StudentId,
+                    FullName = s.StudentName,    // hoặc StudentName nếu bạn đã rename
+                    Email = u.Email
+                };
+
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            q = q.Where(x => x.FullName.ToLower().Contains(term));
+        }
+
+        var totalAfterSearch = await q.CountAsync();
+
+        var pageItems = await q
+            .OrderBy(x => x.FullName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        // Lấy danh sách id để tính số lớp active
+        var ids = pageItems.Select(i => i.StudentId).ToList();
+
+        var counts = await _db.ClassStudents
+            .Where(cs => ids.Contains(cs.StudentId) && cs.IsActive)
+            .GroupBy(cs => cs.StudentId)
+            .Select(g => new { StudentId = g.Key, Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.StudentId, x => x.Cnt);
+
+        var items = pageItems.Select(i =>
+        {
+            var cnt = counts.TryGetValue(i.StudentId, out var c) ? c : 0;
+            return new WithdrawListItemDto
+            {
+                StudentId = i.StudentId,
+                FullName = i.FullName ?? "",
+                Email = i.Email ?? "",
+                ActiveClassCount = cnt,
+                Note = cnt > 1 ? $"Còn học lớp khác ({cnt} lớp) — rời lớp hiện tại, KHÔNG rời trung tâm" : "Sẽ rời trung tâm (không còn lớp nào khác)",
+                Selectable = true   // <-- luôn có thể chọn để rời lớp hiện tại
+            }
+       ;
+        }).ToList();
+
+        var className = await _db.Classes
+            .Where(c => c.ClassID == classId)
+            .Select(c => c.ClassName)
+            .FirstOrDefaultAsync() ?? "";
+
+        return Ok(new ActiveStudentsForWithdrawDto
+        {
+            ClassId = classId,
+            ClassName = className,
+            Page = page,
+            PageSize = pageSize,
+            Total = totalAfterSearch,
+            TotalActiveInClass = totalActiveInClass,
+            Items = items
+        });
+    }
+
+    [HttpPost("{classId}/bulk-withdraw")]
+    public async Task<ActionResult<BulkWithdrawResultDto>> BulkWithdraw(
+    int classId,
+    [FromBody] BulkWithdrawRequestDto req)
+    {
+        var res = new BulkWithdrawResultDto();
+
+        if (req?.StudentIds == null || req.StudentIds.Count == 0)
+            return Ok(res);
+
+        // Chỉ lấy những học sinh còn active trong lớp này
+        var validIds = await _db.ClassStudents
+            .Where(cs => cs.ClassID == classId && cs.IsActive && req.StudentIds.Contains(cs.StudentId))
+            .Select(cs => cs.StudentId)
+            .Distinct()
+            .ToListAsync();
+
+        foreach (var studentId in req.StudentIds.Distinct())
+        {
+            if (!validIds.Contains(studentId))
+            {
+                res.Failed.Add(new BulkWithdrawItemResult
+                {
+                    StudentId = studentId,
+                    Ok = false,
+                    Error = "Student not active in this class"
+                });
+                continue;
+            }
+
+            try
+            {
+                // 1. Tắt ClassStudent của lớp hiện tại (idempotent)
+                var inThisClass = await _db.ClassStudents
+                    .Where(cs => cs.ClassID == classId && cs.StudentId == studentId && cs.IsActive)
+                    .ToListAsync();
+
+                foreach (var cs in inThisClass)
+                    cs.IsActive = false;
+
+                await _db.SaveChangesAsync();
+
+                // 2. Kiểm tra còn lớp active nào khác không
+                var stillActiveElsewhere = await _db.ClassStudents
+                    .AnyAsync(cs => cs.StudentId == studentId && cs.IsActive);
+
+                bool deactivatedAll = false;
+
+                if (!stillActiveElsewhere)
+                {
+                    // Tắt Student (Status=0) và User (IsActive=false)
+                    var stu = await _db.Students.FirstOrDefaultAsync(s => s.StudentId == studentId);
+                    if (stu != null) stu.Status = 0;
+
+                    if (stu != null && stu.UserId != 0)
+                    {
+                        var usr = await _db.Users.FirstOrDefaultAsync(u => u.UserId == stu.UserId);
+                        if (usr != null) usr.IsActive = false;
+                    }
+
+                    await _db.SaveChangesAsync();
+                    deactivatedAll = true;
+                }
+
+                res.Processed.Add(new BulkWithdrawItemResult
+                {
+                    StudentId = studentId,
+                    Ok = true,
+                    DeactivatedAll = deactivatedAll
+                });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                res.Failed.Add(new BulkWithdrawItemResult
+                {
+                    StudentId = studentId,
+                    Ok = false,
+                    Error = "Concurrency conflict"
+                });
+            }
+            catch (Exception ex)
+            {
+                res.Failed.Add(new BulkWithdrawItemResult
+                {
+                    StudentId = studentId,
+                    Ok = false,
+                    Error = ex.Message
+                });
+            }
+        }
+        var cls = await _db.Classes.FirstOrDefaultAsync(c => c.ClassID == classId);
+        if (cls != null && cls.Status != 0)
+        {
+            cls.Status = 0;
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(res);
+    }
+
+
 
 }

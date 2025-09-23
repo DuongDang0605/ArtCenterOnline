@@ -52,7 +52,7 @@ export default function ClassAvailableStudentsPage() {
         const phone = x[pick("phoneNumber", "PhoneNumber", "PhoneNumer")] ?? "";
         const address = x[pick("address", "Address", "adress", "Adress")] ?? "";
         const startRaw = x[pick("ngayBatDauHoc", "startDate", "StartDate")];
-        const email = x[pick("email", "Email")] ?? "";
+        const email = x[pick("userEmail", "UserEmail")] ?? "";
         let startDate = "";
         if (startRaw) {
             try {
