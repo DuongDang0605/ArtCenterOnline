@@ -1,49 +1,13 @@
 ﻿// src/Template/User/AddUserPage.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { createUser } from "./users";
 import { useNavigate, Link } from "react-router-dom";
-
-// ===== Toast (giống các trang khác) =====
-const AUTO_DISMISS = 5000;
-function useToast() {
-    const [msg, setMsg] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    useEffect(() => {
-        if (!msg) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
-            setRemaining(left);
-            if (left === 0) setMsg("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [msg]);
-    return {
-        msg,
-        remaining,
-        show: (m) => {
-            setMsg(m || "Đã xảy ra lỗi.");
-            setRemaining(AUTO_DISMISS);
-        },
-        hide: () => setMsg(""),
-    };
-}
-
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra."
-    );
-}
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function AddUserPage() {
     const navigate = useNavigate();
-    const toast = useToast();
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState({
@@ -89,21 +53,15 @@ export default function AddUserPage() {
     }
 
     const formInvalid =
-        isAdmin ||
-        !email ||
-        emailInvalid ||
-        !trimmed ||
-        pwTooShort ||
-        pwMismatch;
+        isAdmin || !email || emailInvalid || !trimmed || pwTooShort || pwMismatch;
 
     async function onSubmit(e) {
         e.preventDefault();
         const v = validate();
-        if (v) return toast.show(v);
+        if (v) return showError(v);
 
         setSaving(true);
         try {
-            // UsersController.Create (LegacyUserDto) đòi các keys: UserEmail, Password, Status, role
             await createUser({
                 UserEmail: email,
                 Password: trimmed,
@@ -115,7 +73,7 @@ export default function AddUserPage() {
                 replace: true,
             });
         } catch (e) {
-            toast.show(extractErr(e)); // ví dụ 409: Email đã tồn tại
+            showError(extractErr(e) || "Có lỗi xảy ra khi tạo tài khoản.");
         } finally {
             setSaving(false);
         }
@@ -211,7 +169,6 @@ export default function AddUserPage() {
                                     value={form.role}
                                     onChange={onChange}
                                 >
-                                    {/* KHÔNG có Admin trong lựa chọn */}
                                     <option value="Teacher">Giáo viên</option>
                                     <option value="Student">Học sinh</option>
                                 </select>
@@ -251,31 +208,8 @@ export default function AddUserPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi */}
-            {toast.msg && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={toast.hide}>
-                        <span>&times;</span>
-                    </button>
-                    {toast.msg}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
-                                transition: "width 100ms linear",
-                                background: "#a94442",
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

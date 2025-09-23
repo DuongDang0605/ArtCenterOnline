@@ -5,6 +5,7 @@ import { getSession, updateSession, checkStudentOverlapForSession } from "./sess
 import { getTeachers } from "../Teacher/teachers";
 import { useAuth } from "../../auth/authCore";
 import OverlapWarningModal from "../../component/OverlapWarningModal";
+import ConfirmDialog from "../../component/ConfirmDialog"; // NEW: xác nhận giống file mẫu
 
 /* ===== helpers ===== */
 function isoToDMY(iso) {
@@ -94,7 +95,7 @@ export default function EditSessionPage() {
             const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
             setRemaining(left);
             if (left === 0) setErr("");
-        }, 100); // mượt progress bar (100ms). Nếu muốn nhảy từng giây -> 1000
+        }, 100);
         return () => clearInterval(iv);
     }, [err]);
 
@@ -117,6 +118,10 @@ export default function EditSessionPage() {
     const [warnOpen, setWarnOpen] = useState(false);
     const [warnings, setWarnings] = useState([]);
     const [pendingPayload, setPendingPayload] = useState(null);
+
+    // NEW: xác nhận khi KHÔNG có trùng HS (đồng bộ như 2 file mẫu)
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmBusy, setConfirmBusy] = useState(false);
 
     // nạp chi tiết buổi
     useEffect(() => {
@@ -181,6 +186,9 @@ export default function EditSessionPage() {
 
     // ====== SAVE ======
     async function doSave(override = false) {
+        // nếu vào từ ConfirmDialog, báo bận để khoá nút
+        if (!override) setConfirmBusy(true);
+
         setSaving(true);
         showError("");
         try {
@@ -227,6 +235,8 @@ export default function EditSessionPage() {
                     });
                     setWarnOpen(true);
                     setSaving(false);
+                    setConfirmBusy(false);
+                    setConfirmOpen(false);
                     return;
                 }
 
@@ -237,6 +247,8 @@ export default function EditSessionPage() {
                     setPendingPayload(null);
                     showError(teacherOverlapText(data));
                     setSaving(false);
+                    setConfirmBusy(false);
+                    setConfirmOpen(false);
                     return;
                 }
 
@@ -247,16 +259,21 @@ export default function EditSessionPage() {
                     setPendingPayload(null);
                     showError(duplicateSessionText(data));
                     setSaving(false);
+                    setConfirmBusy(false);
+                    setConfirmOpen(false);
                     return;
                 }
             }
             showError(pickErr(e));
             setSaving(false);
+            setConfirmBusy(false);
+            setConfirmOpen(false);
         }
     }
 
     // preflight: check trùng HS trước khi lưu
     async function preflightThenSave() {
+        if (!canEdit) return;
         setSaving(true);
         showError("");
         try {
@@ -268,7 +285,9 @@ export default function EditSessionPage() {
             };
             const conflicts = await checkStudentOverlapForSession(id, patch);
             const warns = conflictsToWarnings(conflicts);
+
             if (warns.length > 0) {
+                // Có trùng HS -> chỉ hiển thị modal cảnh báo (giữ nguyên hành vi cũ)
                 setWarnings(warns);
                 setPendingPayload({
                     SessionDate: sessionDate,
@@ -282,9 +301,14 @@ export default function EditSessionPage() {
                 setSaving(false);
                 return;
             }
-            await doSave(false);
+
+            // KHÔNG có trùng HS -> hiện ConfirmDialog như 2 file mẫu, sau đó mới lưu
+            setConfirmOpen(true);
+            setSaving(false);
         } catch {
-            await doSave(false); // fallback nếu endpoint preflight lỗi
+            // Fallback: nếu preflight lỗi, vẫn hỏi xác nhận rồi lưu
+            setConfirmOpen(true);
+            setSaving(false);
         }
     }
 
@@ -364,7 +388,6 @@ export default function EditSessionPage() {
                         <form
                             onSubmit={(e) => {
                                 e.preventDefault();
-                                if (!canEdit) return;
                                 preflightThenSave();
                             }}
                         >
@@ -502,7 +525,7 @@ export default function EditSessionPage() {
                                     type="button"
                                     className="btn btn-default"
                                     onClick={() => navigate(-1)}
-                                    disabled={saving}
+                                    disabled={saving || confirmBusy}
                                 >
                                     Hủy
                                 </button>
@@ -510,7 +533,7 @@ export default function EditSessionPage() {
                                     type="submit"
                                     className="btn btn-primary"
                                     style={{ marginLeft: 8 }}
-                                    disabled={!canEdit || saving}
+                                    disabled={!canEdit || saving || confirmBusy}
                                 >
                                     {saving ? "Đang lưu…" : "Lưu"}
                                 </button>
@@ -520,7 +543,7 @@ export default function EditSessionPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi (giống AddEditSchedulePage) */}
+            {/* Toast lỗi nổi */}
             {err && (
                 <div
                     className="alert alert-danger"
@@ -569,6 +592,21 @@ export default function EditSessionPage() {
                 warnings={warnings}
                 onCancel={() => setWarnOpen(false)}
                 onConfirm={onConfirmWarning}
+            />
+
+            {/* NEW: ConfirmDialog — hiện khi KHÔNG có HS trùng lịch (đồng bộ 2 file mẫu) */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type="primary"
+                title="Xác nhận cập nhật buổi học"       // tiêu đề in đậm, căn giữa (theo component)
+                message={`Lưu thay đổi cho buổi học ${isoToDMY(sessionDate)} ${startTime}-${endTime}${teacherName ? ` — ${teacherName}` : ""
+                    }?`}
+                details="Hành động này sẽ cập nhật lịch học và có thể ảnh hưởng tới điểm danh/thống kê."
+                confirmText="Lưu"
+                cancelText="Xem lại"
+                onCancel={() => { if (!confirmBusy) setConfirmOpen(false); }}
+                onConfirm={() => doSave(false)}
+                busy={confirmBusy}
             />
         </>
     );

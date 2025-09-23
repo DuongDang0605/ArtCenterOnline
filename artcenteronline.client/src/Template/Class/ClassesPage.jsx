@@ -3,21 +3,17 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/authCore";
 import { getClasses } from "./classes";
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
-// (giữ nguyên callSyncMonth như cũ)
-async function callSyncMonth(classId, onOk) {
-    try {
-        const mod = await import("../Session/sessions");
-        if (typeof mod.syncMonth === "function") {
-            await mod.syncMonth(classId);
-            if (typeof onOk === "function") onOk("Đã lên lịch tháng này cho lớp #" + classId);
-            else alert("Đã lên lịch tháng này cho lớp #" + classId);
-        } else {
-            alert("Chức năng syncMonth chưa sẵn sàng.");
-        }
-    } catch {
-        alert("Không tìm thấy module syncMonth.");
+// Gọi syncMonth, ném lỗi để bên ngoài xử lý toast
+async function callSyncMonth(classId) {
+    const mod = await import("../Session/sessions");
+    if (typeof mod.syncMonth !== "function") {
+        throw new Error("Chức năng syncMonth chưa sẵn sàng.");
     }
+    await mod.syncMonth(classId);
 }
 
 export default function ClassesPage() {
@@ -29,30 +25,21 @@ export default function ClassesPage() {
     const location = useLocation();
     const navigate = useNavigate();
 
+    const { showError, showSuccess, Toasts } = useToasts();
+
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
 
-    // ===== Success toast =====
-    const AUTO_SUCCESS = 5000; // ms
-    const [toastOk, setToastOk] = useState("");
-    const [okRemain, setOkRemain] = useState(0);
-
-    function showOk(msg) {
-        const text = (msg || "").trim();
-        setToastOk(text);
-        if (text) setOkRemain(AUTO_SUCCESS);
-    }
+    // ===== Nhận success từ trang khác điều hướng tới (flash/notice) =====
     useEffect(() => {
-        if (!toastOk) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_SUCCESS - (Date.now() - start));
-            setOkRemain(left);
-            if (left === 0) setToastOk("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [toastOk]);
+        const n = location?.state?.notice || location?.state?.flash;
+        if (n) {
+            showSuccess(String(n));
+            // xoá state để F5 không hiện lại
+            setTimeout(() => navigate(location.pathname, { replace: true, state: {} }), 0);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Guard: chưa đăng nhập -> login
     useEffect(() => {
@@ -60,15 +47,6 @@ export default function ClassesPage() {
             navigate("/login", { replace: true, state: { flash: "Vui lòng đăng nhập để tiếp tục." } });
         }
     }, [isLoggedIn, navigate]);
-
-    // Nhận flash
-    useEffect(() => {
-        const f = location?.state?.flash;
-        if (f) {
-            showOk(String(f));
-            navigate(location.pathname, { replace: true, state: {} });
-        }
-    }, [location, navigate]);
 
     // Load data
     useEffect(() => {
@@ -85,19 +63,21 @@ export default function ClassesPage() {
                     navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
                     return;
                 }
-                if (alive) setErr(e?.response?.data ?? e?.message ?? "Load lớp thất bại");
+                showError(extractErr(e) || "Load lớp thất bại");
             } finally {
                 if (alive) setLoading(false);
             }
         })();
         return () => { alive = false; };
-    }, [isLoggedIn, navigate]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoggedIn]);
+
     // DataTable
     const tableRef = useRef(null);
     const dtRef = useRef(null);
 
     useEffect(() => {
-        if (loading || err) return;
+        if (loading) return;
         const $ = window.jQuery || window.$;
         const el = tableRef.current;
         if (!el || !$.fn?.DataTable) return;
@@ -162,7 +142,7 @@ export default function ClassesPage() {
             try { $(el).DataTable().destroy(); } catch { /* ignore */ }
             dtRef.current = null;
         };
-    }, [loading, err, rows]);
+    }, [loading, rows]);
 
     // Chuẩn hoá 1 row — hỗ trợ cả PascalCase & camelCase
     const norm = (x) => {
@@ -172,6 +152,31 @@ export default function ClassesPage() {
         const status = x.Status ?? x.status ?? 1;
         return { id, name, branch, status };
     };
+
+    // ===== Xác nhận trước khi "Lên lịch tháng" =====
+    const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
+    const [targetClassId, setTargetClassId] = useState(null);
+    const [syncBusy, setSyncBusy] = useState(false);
+
+    function askSync(id) {
+        setTargetClassId(id);
+        setSyncConfirmOpen(true);
+    }
+
+    async function doSync() {
+        if (!targetClassId) return;
+        setSyncBusy(true);
+        try {
+            await callSyncMonth(targetClassId);
+            showSuccess(`Đã lên lịch tháng cho lớp #${targetClassId}`);
+        } catch (e) {
+            showError(extractErr(e) || "Lên lịch tháng thất bại.");
+        } finally {
+            setSyncBusy(false);
+            setSyncConfirmOpen(false);
+            setTargetClassId(null);
+        }
+    }
 
     return (
         <>
@@ -191,9 +196,8 @@ export default function ClassesPage() {
 
                     <div className="box-body">
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <p className="text-red">Lỗi: {String(err)}</p>}
 
-                        {!loading && !err && (
+                        {!loading && (
                             <div className="table-responsive">
                                 <table
                                     id="ClassesTable"
@@ -234,7 +238,6 @@ export default function ClassesPage() {
                                                     {/* Lịch học / Sync tháng */}
                                                     <td>
                                                         <div className="btn-group btn-group-xs" role="group">
-
                                                             {isAdmin ? (
                                                                 <div>
                                                                     <Link to={`/classes/${c.id}/schedules`} className="btn btn-warning btn-xs">
@@ -243,14 +246,13 @@ export default function ClassesPage() {
                                                                     <button
                                                                         type="button"
                                                                         className={`btn btn-xs ${c.status === 1 ? "btn-success" : "btn-default disabled"}`}
-                                                                        onClick={() => c.status === 1 && callSyncMonth(c.id, showOk)}
+                                                                        onClick={() => c.status === 1 && askSync(c.id)}
                                                                         disabled={c.status !== 1}
                                                                         title={c.status === 1 ? "Lên lịch tháng cho lớp này" : "Lớp đã tắt — không thể lên lịch"}
                                                                         style={c.status !== 1 ? { cursor: "not-allowed", opacity: .6 } : undefined}
                                                                     >
                                                                         <i className="fa fa-refresh" /> Lên lịch tháng
                                                                     </button>
-
                                                                 </div>
                                                             ) : (
                                                                 <div>
@@ -312,47 +314,21 @@ export default function ClassesPage() {
                 </div>
             </section>
 
-            {/* ===== Success toast (đếm ngược + progress, giống StudentInClass) ===== */}
-            {toastOk && (
-                <div
-                    className="alert alert-success"
-                    style={{
-                        position: "fixed",
-                        top: 120, // error toast (nếu có) thường ở 70; success ở dưới một chút cho khỏi đè nhau
-                        right: 16,
-                        zIndex: 9998,
-                        maxWidth: 420,
-                        boxShadow: "0 4px 12px rgba(0,0,0,.15)"
-                    }}
-                >
-                    <button
-                        type="button"
-                        className="close"
-                        onClick={() => setToastOk("")}
-                        aria-label="Close"
-                        style={{ marginLeft: 8 }}
-                    >
-                        <span aria-hidden="true">&times;</span>
-                    </button>
+            {/* Modal xác nhận sync tháng — căn giữa, tiêu đề in đậm */}
+            <ConfirmDialog
+                open={syncConfirmOpen}
+                type="primary"
+                title="Xác nhận lên lịch tháng"
+                message={`Bạn có chắc chắn muốn lên lịch tháng này cho lớp #${targetClassId}?`}
+                confirmText="Lên lịch"
+                cancelText="Để sau"
+                onCancel={() => { if (!syncBusy) { setSyncConfirmOpen(false); setTargetClassId(null); } }}
+                onConfirm={doSync}
+                busy={syncBusy}
+            />
 
-                    <div style={{ whiteSpace: "pre-wrap" }}>{toastOk}</div>
-
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(okRemain / 1000).toFixed(1)}s
-                    </div>
-
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(okRemain / AUTO_SUCCESS) * 100}%`,
-                                background: "#3c763d",
-                                transition: "width 100ms linear"
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* Toasts chung (success + error) */}
+            <Toasts />
         </>
     );
 }

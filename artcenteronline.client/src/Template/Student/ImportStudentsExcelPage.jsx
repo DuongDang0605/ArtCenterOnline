@@ -8,54 +8,22 @@ import {
     downloadImportTemplate,
 } from "./students";
 
-const AUTO = 5000;
-
-function useToast() {
-    const [msg, setMsg] = useState("");
-    const [left, setLeft] = useState(0);
-    useEffect(() => {
-        if (!msg) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const t = Math.max(0, AUTO - (Date.now() - start));
-            setLeft(t);
-            if (t === 0) setMsg("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [msg]);
-    return {
-        msg,
-        left,
-        show: (m) => {
-            setMsg(m || "Đã xảy ra lỗi.");
-            setLeft(AUTO);
-        },
-        hide: () => setMsg(""),
-    };
-}
-
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra."
-    );
-}
+// Đồng bộ theo AddClassPage:
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function ImportStudentsExcelPage() {
     const nav = useNavigate();
-    const toast = useToast();
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const [fileName, setFileName] = useState("");
     const [uploading, setUploading] = useState(false);
     const [stagingId, setStagingId] = useState("");
     const [errors, setErrors] = useState([]); // [{ row, message }]
-    const [rows, setRows] = useState([]); // dữ liệu preview
+    const [rows, setRows] = useState([]);     // dữ liệu preview
 
+    // Phân trang lỗi
     const [errPage, setErrPage] = useState(1);
     const errPageSize = 10;
     const totalErrPages = Math.max(1, Math.ceil(errors.length / errPageSize));
@@ -63,7 +31,11 @@ export default function ImportStudentsExcelPage() {
 
     const tableRef = useRef(null);
     const dtRef = useRef(null);
-    const fileRef = useRef(null); // để reset input file
+    const fileRef = useRef(null);
+
+    // Modal xác nhận commit (đồng bộ ConfirmDialog)
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [committing, setCommitting] = useState(false);
 
     // ---- Utils: DataTable ----
     const destroyDataTable = () => {
@@ -73,7 +45,9 @@ export default function ImportStudentsExcelPage() {
                 dtRef.current.destroy(true);
                 dtRef.current = null;
             }
-        } catch { /* empty */ }
+        } catch {
+            /* ignore */
+        }
     };
 
     // Chuẩn hoá item cho bảng preview — KHÔNG có "Số buổi còn lại"
@@ -92,10 +66,7 @@ export default function ImportStudentsExcelPage() {
                 // BE trả ISO yyyy-MM-dd; render dd/MM/yyyy
                 const [y, m, d] = String(startRaw).split("-").map(Number);
                 if (y && m && d) {
-                    startDate = `${String(d).padStart(2, "0")}/${String(m).padStart(
-                        2,
-                        "0"
-                    )}/${y}`;
+                    startDate = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
                 } else {
                     const dt = new Date(startRaw);
                     startDate = isNaN(dt) ? String(startRaw) : dt.toLocaleDateString("vi-VN");
@@ -105,6 +76,7 @@ export default function ImportStudentsExcelPage() {
             }
         }
         const learned = x[pick("soBuoiHocDaHoc", "SoBuoiHocDaHoc")] ?? 0;
+        const Dadong = x[pick("SoBuoiHocConLai", "soBuoiHocConLai")] ?? 0;
         const statusNum = (() => {
             const raw = x[pick("status", "Status")] ?? 1;
             if (typeof raw === "number") return raw ? 1 : 0;
@@ -112,7 +84,7 @@ export default function ImportStudentsExcelPage() {
             const s = String(raw).trim().toLowerCase();
             return s === "1" || s === "active" || s === "đang học" ? 1 : 0;
         })();
-        return { id, name, parent, phone, address, email, startDate, learned, statusNum };
+        return { id, name, parent, phone, address, email, startDate, learned, Dadong, statusNum };
     };
 
     useEffect(() => {
@@ -124,7 +96,6 @@ export default function ImportStudentsExcelPage() {
         const $ = window.jQuery || window.$;
         const el = tableRef.current;
         if (!rows.length || !$.fn?.DataTable || !el) {
-            // Nếu không có rows → dọn bảng cũ nếu còn
             if (!rows.length) destroyDataTable();
             return;
         }
@@ -155,7 +126,7 @@ export default function ImportStudentsExcelPage() {
                 aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
-                { targets: 0, width: 80 }, // ID
+                { targets: 0, width: 80 },  // ID
                 { targets: 7, width: 120 }, // learned
                 { targets: 8, width: 120 }, // status
             ],
@@ -172,9 +143,7 @@ export default function ImportStudentsExcelPage() {
         return () => {
             window.removeEventListener("resize", onResize);
             obs.disconnect();
-            try {
-                dt.destroy(true);
-            } catch { /* empty */ }
+            try { dt.destroy(true); } catch { /* empty */ }
             dtRef.current = null;
         };
     }, [rows]);
@@ -185,11 +154,9 @@ export default function ImportStudentsExcelPage() {
             const res = await downloadImportTemplate();
             const blob = new Blob([res.data], {
                 type:
-                    res.headers["content-type"] ||
+                    res.headers?.["content-type"] ||
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             });
-
-            // Ép tên phía client để tránh sai khác header
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
@@ -198,8 +165,9 @@ export default function ImportStudentsExcelPage() {
             a.click();
             a.remove();
             window.URL.revokeObjectURL(url);
+            showSuccess("Đã tải file mẫu."); // đồng bộ toast success
         } catch (ex) {
-            toast.show(extractErr(ex));
+            showError(extractErr(ex) || "Không tải được file mẫu.");
         }
     }
 
@@ -233,30 +201,53 @@ export default function ImportStudentsExcelPage() {
             const { stagingId: sid, items, errors } = await importStudentsExcel(f); // server parse + validate
             if (errors && errors.length) {
                 setErrors(errors); // [{row, message}]
+                showError("File có lỗi. Kiểm tra danh sách lỗi bên dưới."); // đồng bộ cảnh báo
                 return;
             }
             setStagingId(sid);
             setRows(items.map((x, i) => normalizeItem(x, i)));
+            showSuccess(`Đã tải và kiểm tra: ${items.length} dòng hợp lệ.`);
         } catch (ex) {
             const errs = ex?.response?.data?.errors;
-            if (Array.isArray(errs) && errs.length) setErrors(errs);
-            else toast.show(extractErr(ex));
+            if (Array.isArray(errs) && errs.length) {
+                setErrors(errs);
+                showError("File có lỗi. Kiểm tra danh sách lỗi bên dưới.");
+            } else {
+                showError(extractErr(ex) || "Không thể xử lý file.");
+            }
         } finally {
             setUploading(false);
         }
     }
 
-    async function onConfirm() {
+    function openConfirmCommit() {
+        if (!stagingId) {
+            showError("Chưa có dữ liệu để lưu. Hãy chọn file Excel hợp lệ.");
+            return;
+        }
+        setConfirmOpen(true);
+    }
+
+    async function doCommit() {
         if (!stagingId) return;
+        setCommitting(true);
         try {
             await commitImport(stagingId);
+            // Điều hướng và để trang đích hiển thị success (đồng bộ AddClassPage)
             nav("/students", {
                 state: { notice: `Đã nhập ${rows.length} học viên từ Excel.` },
             });
         } catch (ex) {
             const errs = ex?.response?.data?.errors;
-            if (Array.isArray(errs) && errs.length) setErrors(errs);
-            else toast.show(extractErr(ex));
+            if (Array.isArray(errs) && errs.length) {
+                setErrors(errs);
+                showError("Không thể lưu do lỗi dữ liệu. Kiểm tra danh sách lỗi.");
+            } else {
+                showError(extractErr(ex) || "Có lỗi khi lưu dữ liệu.");
+            }
+        } finally {
+            setCommitting(false);
+            setConfirmOpen(false);
         }
     }
 
@@ -274,11 +265,12 @@ export default function ImportStudentsExcelPage() {
         setRows([]);
         setErrors([]);
         setStagingId("");
-        resetInputFile(); // cho phép chọn lại đúng file cũ
+        resetInputFile();
+        showSuccess("Đã hủy tạm nhập và dọn dữ liệu.");
     }
 
     return (
-        <div>
+        <>
             <section className="content-header">
                 <h1>NHẬP HỌC VIÊN TỪ EXCEL</h1>
                 <ol className="breadcrumb">
@@ -315,11 +307,7 @@ export default function ImportStudentsExcelPage() {
 
                         <div className="box-body" style={{ paddingLeft: 0, paddingRight: 0 }}>
                             <p className="help-block" style={{ marginTop: 8 }}>
-                                <button
-                                    type="button"
-                                    className="btn btn-link"
-                                    onClick={onDownloadTemplate}
-                                >
+                                <button type="button" className="btn btn-link" onClick={onDownloadTemplate}>
                                     <i className="fa fa-download" /> Tải file mẫu
                                 </button>
                                 <span className="text-muted" style={{ marginLeft: 8 }}>
@@ -375,10 +363,7 @@ export default function ImportStudentsExcelPage() {
                                             </a>
                                         </li>
                                         {Array.from({ length: totalErrPages }, (_, idx) => (
-                                            <li
-                                                key={idx}
-                                                className={errPage === idx + 1 ? "active" : ""}
-                                            >
+                                            <li key={idx} className={errPage === idx + 1 ? "active" : ""}>
                                                 <a
                                                     href="#!"
                                                     onClick={(e) => {
@@ -436,6 +421,7 @@ export default function ImportStudentsExcelPage() {
                                             <th>Email</th>
                                             <th>Ngày nhập học</th>
                                             <th>Số buổi đã học</th>
+                                            <th>Số buổi đã đóng</th>
                                             <th>Trạng thái</th>
                                         </tr>
                                     </thead>
@@ -450,11 +436,11 @@ export default function ImportStudentsExcelPage() {
                                                 <td>{r.email}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>{r.learned}</td>
+                                                <td>{r.Dadong}</td>
                                                 <td>
                                                     <span
                                                         className={
-                                                            "label " +
-                                                            (r.statusNum === 1 ? "label-success" : "label-default")
+                                                            "label " + (r.statusNum === 1 ? "label-success" : "label-default")
                                                         }
                                                     >
                                                         {r.statusNum === 1 ? "Đang học" : "Ngừng học"}
@@ -467,50 +453,34 @@ export default function ImportStudentsExcelPage() {
                             </div>
 
                             <div style={{ marginTop: 12 }}>
-                                <button className="btn btn-success" onClick={onConfirm}>
+                                <button className="btn btn-success" onClick={openConfirmCommit}>
                                     <i className="fa fa-check" /> Xác nhận lưu
                                 </button>{" "}
                                 <button className="btn btn-default" onClick={onRollback}>
                                     Hủy
-                                </button>{" "}
-                               
+                                </button>
                             </div>
                         </div>
                     </div>
                 )}
             </section>
 
-            {/* Toast lỗi nổi */}
-            {toast.msg && (
-                <div
-                    className="alert alert-danger"
-                    style={{
-                        position: "fixed",
-                        top: 70,
-                        right: 16,
-                        zIndex: 9999,
-                        maxWidth: 420,
-                        boxShadow: "0 4px 12px rgba(0,0,0,.15)",
-                    }}
-                >
-                    <button type="button" className="close" onClick={toast.hide}>
-                        <span>&times;</span>
-                    </button>
-                    {toast.msg}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(toast.left / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(toast.left / AUTO) * 100}%`,
-                                transition: "width 100ms linear",
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-        </div>
+            {/* Modal xác nhận ở giữa màn hình, tiêu đề in đậm (đồng bộ AddClassPage) */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type="primary"
+                title="Xác nhận nhập học viên"
+                message={`Lưu ${rows.length} học viên vào hệ thống?`}
+                details="Bạn có thể chỉnh sửa thông tin học viên sau khi import."
+                confirmText="Lưu vào hệ thống"
+                cancelText="Xem lại"
+                onCancel={() => setConfirmOpen(false)}
+                onConfirm={doCommit}
+                busy={committing}
+            />
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
+        </>
     );
 }

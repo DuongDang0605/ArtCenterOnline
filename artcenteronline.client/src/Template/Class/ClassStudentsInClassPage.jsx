@@ -1,29 +1,12 @@
 ﻿// src/Template/Class/ClassStudentsInClassPage.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { getStudentsInClass, setClassStudentActive } from "../Class/classStudents";
 import { getClass } from "../Class/classes";
 import { useAuth } from "../../auth/authCore";
-
-function extractError(e) {
-    const res = e?.response;
-    let msg =
-        e?.userMessage ||
-        res?.data?.message ||
-        res?.data?.detail ||
-        res?.data?.title ||
-        (typeof res?.data === "string" ? res.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra.";
-    if (!e?.userMessage && res?.data?.errors && typeof res.data.errors === "object") {
-        const lines = [];
-        for (const [field, arr] of Object.entries(res.data.errors)) {
-            (arr || []).forEach((x) => lines.push(`${field}: ${x}`));
-        }
-        if (lines.length) msg = lines.join("\n");
-    }
-    return String(msg);
-}
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 function toVNDate(input) {
     if (!input) return "";
@@ -36,67 +19,41 @@ export default function ClassStudentsInClassPage() {
     const { classId } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
-    const { isAdmin, isTeacher } = useAuth() || {};
+
+    const auth = useAuth() || {};
+    const roles = auth.roles || [];
+    const isAdmin = auth.isAdmin ?? roles.includes("Admin");
+    const isLoggedIn = !!auth?.user || !!auth?.token;
+
+    const { showError, showSuccess, Toasts } = useToasts();
 
     const [rows, setRows] = useState([]);
     const [classInfo, setClassInfo] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // ==== Toasts có đồng hồ đếm ngược ====
-    const AUTO_DISMISS = 5000;
-    const [toastErr, setToastErr] = useState("");
-    const [errRemain, setErrRemain] = useState(0);
-    const [toastOk, setToastOk] = useState("");
-    const [okRemain, setOkRemain] = useState(0);
-
-    function showError(msg) {
-        const text = (msg || "").trim();
-        setToastErr(text);
-        if (text) setErrRemain(AUTO_DISMISS);
-    }
-    function showOk(msg) {
-        const text = (msg || "").trim();
-        setToastOk(text);
-        if (text) setOkRemain(AUTO_DISMISS);
-    }
-
-    // Nhận flash từ trang import
+    // Nhận flash/notice (đồng bộ như ClassesPage)
     useEffect(() => {
-        const msg = location?.state?.flash;
-        if (msg) {
-            showOk(msg);
-            navigate(location.pathname, { replace: true, state: {} });
+        const n = location?.state?.notice || location?.state?.flash;
+        if (n) {
+            showSuccess(String(n));
+            setTimeout(() => navigate(location.pathname, { replace: true, state: {} }), 0);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Guard: chưa đăng nhập -> login
     useEffect(() => {
-        if (!toastErr) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
-            setErrRemain(left);
-            if (left === 0) setToastErr("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [toastErr]);
-
-    useEffect(() => {
-        if (!toastOk) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
-            setOkRemain(left);
-            if (left === 0) setToastOk("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [toastOk]);
+        if (!isLoggedIn) {
+            navigate("/login", { replace: true, state: { flash: "Vui lòng đăng nhập để tiếp tục." } });
+        }
+    }, [isLoggedIn, navigate]);
 
     const tableRef = useRef(null);
     const dtRef = useRef(null);
 
     // Load data
     useEffect(() => {
+        if (!isLoggedIn) return;
         let alive = true;
         (async () => {
             try {
@@ -112,20 +69,25 @@ export default function ClassStudentsInClassPage() {
                     name: x.StudentName ?? x.studentName ?? "",
                     parent: x.ParentName ?? x.parentName ?? "",
                     phone: x.PhoneNumber ?? x.phoneNumber ?? "",
-                    address: x.adress ?? x.Adress ?? x.Address ?? "", // chú ý 'adress'
+                    address: x.adress ?? x.Adress ?? x.Address ?? "", // 'adress' legacy
                     startDate: toVNDate(x.StartDate ?? x.startDate ?? x.ngayBatDauHoc),
                     joinedDate: toVNDate(x.JoinedDate ?? x.joinedDate),
                     isActive: !!(x.IsActive ?? x.isActive),
                 }));
                 setRows(norm);
             } catch (e) {
-                showError(extractError(e));
+                const s = e?.response?.status;
+                if (s === 401) {
+                    navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+                    return;
+                }
+                showError(extractErr(e) || "Không tải được danh sách.");
             } finally {
                 if (alive) setLoading(false);
             }
         })();
         return () => { alive = false; };
-    }, [classId]);
+    }, [classId, isLoggedIn, navigate]);
 
     // DataTable
     useEffect(() => {
@@ -146,13 +108,23 @@ export default function ClassStudentsInClassPage() {
                 ordering: true,
                 paging: true,
                 info: true,
+                pageLength: 10,
+                order: [[0, "asc"]],
                 dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>tr<'row'<'col-sm-5'i><'col-sm-7'p>>",
                 language: {
-                    search: "Tìm kiếm:",
+                    decimal: ",",
+                    thousands: ".",
+                    emptyTable: "Không có dữ liệu",
+                    info: "Hiển thị _START_–_END_ trên tổng _TOTAL_ dòng",
+                    infoEmpty: "Hiển thị 0–0 trên tổng 0 dòng",
+                    infoFiltered: "(lọc từ _MAX_ dòng)",
                     lengthMenu: "Hiện _MENU_ dòng",
-                    info: "Hiển thị _START_-_END_ / _TOTAL_ dòng",
-                    paginate: { previous: "Trước", next: "Sau" },
-                    zeroRecords: "Không có dữ liệu",
+                    loadingRecords: "Đang tải...",
+                    processing: "Đang xử lý...",
+                    search: "Tìm kiếm:",
+                    zeroRecords: "Không tìm thấy kết quả phù hợp",
+                    paginate: { first: "Đầu", last: "Cuối", next: "Sau", previous: "Trước" },
+                    aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
                 },
                 columnDefs: [
                     { targets: 0, width: 80 },
@@ -181,54 +153,49 @@ export default function ClassStudentsInClassPage() {
         };
     }, [loading, rows]);
 
-    // ======= Toggle + Confirm khi TẮT (Admin) =======
-    const [togglingId, setTogglingId] = useState(null);
-    const [confirm, setConfirm] = useState({ open: false, studentId: null, name: "", curr: true });
-    const pendingNameRef = useRef("");
+    // ======= Toggle + Confirm (cả TẮT & BẬT – chỉ Admin) =======
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmBusy, setConfirmBusy] = useState(false);
+    const [target, setTarget] = useState({ id: null, curr: true, name: "" });
 
-    function openConfirm(studentId, name, curr) {
-        setConfirm({ open: true, studentId, name: name || `#${studentId}`, curr });
-    }
-    function closeConfirm() {
-        setConfirm({ open: false, studentId: null, name: "", curr: true });
-    }
-
-    async function doToggle(studentId, curr) {
-        if (togglingId) return;
-        setTogglingId(studentId);
-        try {
-            await setClassStudentActive(classId, studentId, !curr);
-            setRows(prev => prev.map(r => r.studentId === studentId ? { ...r, isActive: !curr } : r));
-            // Toast thành công
-            const nm = pendingNameRef.current || `#${studentId}`;
-            if (curr) {
-                showOk(`Đã tắt trạng thái học viên ${nm}.`);
-            } else {
-                showOk(`Đã bật trạng thái học viên ${nm}.`);
-            }
-        } catch (e) {
-            showError(extractError(e));
-        } finally {
-            setTogglingId(null);
-            pendingNameRef.current = "";
-        }
-    }
-
-    function handleToggleClick(studentId, curr, name) {
-        // Admin tắt -> cảnh báo xác nhận
-        if (isAdmin && curr === true) {
-            openConfirm(studentId, name, curr);
+    const askToggle = useCallback((studentId, curr, name) => {
+        if (!isAdmin) {
+            // giống ClassesPage: nút đã disabled; chặn thêm nếu bị thao tác thủ công
+            showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
             return;
         }
-        // các trường hợp khác -> thao tác ngay
-        pendingNameRef.current = name || `#${studentId}`;
-        doToggle(studentId, curr);
+        // Luôn xác nhận cả khi TẮT lẫn BẬT
+        setTarget({ id: studentId, curr, name: name || `#${studentId}` });
+        setConfirmOpen(true);
+    }, [isAdmin, showError]);
+
+    async function doToggle(studentId, curr, name) {
+        if (!isAdmin) { showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin)."); return; }
+        try {
+            await setClassStudentActive(classId, studentId, !curr);
+            setRows(prev => prev.map(r => r.studentId === studentId ? ({ ...r, isActive: !curr }) : r));
+            showSuccess(curr
+                ? `Đã tắt trạng thái học viên ${name || `#${studentId}`}.`
+                : `Đã bật trạng thái học viên ${name || `#${studentId}`}.`);
+        } catch (e) {
+            const s = e?.response?.status;
+            if (s === 401) {
+                navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+                return;
+            }
+            showError(extractErr(e) || "Cập nhật trạng thái thất bại.");
+        }
     }
 
-    function proceedConfirm() {
-        pendingNameRef.current = confirm.name || `#${confirm.studentId}`;
-        doToggle(confirm.studentId, confirm.curr);
-        closeConfirm();
+    async function confirmProceed() {
+        setConfirmBusy(true);
+        try {
+            await doToggle(target.id, target.curr, target.name);
+        } finally {
+            setConfirmBusy(false);
+            setConfirmOpen(false);
+            setTarget({ id: null, curr: true, name: "" });
+        }
     }
 
     return (
@@ -293,13 +260,23 @@ export default function ClassStudentsInClassPage() {
                                                     </span>
                                                 </td>
                                                 <td>
-                                                    <button
-                                                        className={`btn btn-xs ${r.isActive ? "btn-warning" : "btn-success"}`}
-                                                        disabled={togglingId === r.studentId}
-                                                        onClick={() => handleToggleClick(r.studentId, r.isActive, r.name)}
-                                                    >
-                                                        <i className="fa fa-toggle-on" /> {r.isActive ? "Nghỉ" : "Học"}
-                                                    </button>
+                                                    {isAdmin ? (
+                                                        <button
+                                                            className={`btn btn-xs ${r.isActive ? "btn-warning" : "btn-success"}`}
+                                                            onClick={() => askToggle(r.studentId, r.isActive, r.name)}
+                                                        >
+                                                            <i className="fa fa-toggle-on" /> {r.isActive ? "Nghỉ" : "Học"}
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            className="btn btn-default btn-xs disabled"
+                                                            disabled
+                                                            title="Chỉ Admin được bật/tắt"
+                                                            style={{ cursor: "not-allowed", opacity: .6 }}
+                                                        >
+                                                            <i className="fa fa-toggle-on" /> {r.isActive ? "Nghỉ" : "Học"}
+                                                        </button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
@@ -311,83 +288,33 @@ export default function ClassStudentsInClassPage() {
                 </div>
             </section>
 
-            {/* ===== Modal xác nhận khi TẮT trạng thái (Admin) ===== */}
-            {confirm.open && (
-                <div className="modal fade in" style={{ display: "block", backgroundColor: "rgba(0,0,0,.5)" }} role="dialog" aria-modal="true">
-                    <div className="modal-dialog">
-                        <div className="modal-content">
-                            <div className="modal-header">
-                                <button type="button" className="close" onClick={closeConfirm}><span>&times;</span></button>
-                                <h4 className="modal-title">
-                                    <i className="fa fa-exclamation-triangle text-yellow" /> Xác nhận
-                                </h4>
-                            </div>
-                            <div className="modal-body">
-                                <p>
-                                    Bạn sắp <b>tắt trạng thái</b> của học viên <b>{confirm.name}</b> trong lớp <b>{classInfo?.className}</b>.
-                                    Học viên sẽ được đánh dấu <i>Ngừng học</i> và không được tính là đang active trong lớp. Tiếp tục?
-                                </p>
-                            </div>
-                            <div className="modal-footer">
-                                <button className="btn btn-default" onClick={closeConfirm}>Hủy</button>
-                                <button className="btn btn-warning" onClick={proceedConfirm}>
-                                    <i className="fa fa-toggle-off" /> Tắt
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modal xác nhận khi BẬT/TẮT trạng thái — căn giữa, tiêu đề in đậm (ConfirmDialog) */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type={target.curr ? "warning" : "primary"}
+                title="Xác nhận"
+                message={
+                    target.curr ? (
+                        <>
+                            Bạn sắp <b>tắt trạng thái</b> của học viên <b>{target.name}</b> trong lớp <b>{classInfo?.className}</b>.
+                            Học viên sẽ được đánh dấu <i>Ngừng học</i>. Tiếp tục?
+                        </>
+                    ) : (
+                        <>
+                            Bạn sắp <b>bật trạng thái</b> của học viên <b>{target.name}</b> trong lớp <b>{classInfo?.className}</b>.
+                            Học viên sẽ được đánh dấu <i>Đang học</i>. Tiếp tục?
+                        </>
+                    )
+                }
+                confirmText={target.curr ? "Tắt" : "Bật"}
+                cancelText="Hủy"
+                onCancel={() => !confirmBusy && setConfirmOpen(false)}
+                onConfirm={confirmProceed}
+                busy={confirmBusy}
+            />
 
-            {/* Toast lỗi */}
-            {toastErr && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setToastErr("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-
-                    <div style={{ whiteSpace: "pre-wrap" }}>{toastErr}</div>
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {(errRemain / 1000).toFixed(1)}s</div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(errRemain / AUTO_DISMISS) * 100}%`,
-                                background: "#a94442",
-                                transition: "width 100ms linear"
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Toast thành công */}
-            {toastOk && (
-                <div
-                    className="alert alert-success"
-                    style={{ position: "fixed", top: 120, right: 16, zIndex: 9998, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setToastOk("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-
-                    <div style={{ whiteSpace: "pre-wrap" }}>{toastOk}</div>
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {(okRemain / 1000).toFixed(1)}s</div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(okRemain / AUTO_DISMISS) * 100}%`,
-                                background: "#3c763d",
-                                transition: "width 100ms linear"
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* Toasts dùng chung */}
+            <Toasts />
         </>
     );
 }

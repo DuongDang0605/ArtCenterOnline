@@ -8,6 +8,9 @@ import {
     checkStudentOverlapForSchedule,
 } from "./schedules";
 import OverlapWarningModal from "../../component/OverlapWarningModal";
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 const VI_DOW = [
     { v: 0, t: "Chủ nhật" },
@@ -18,20 +21,6 @@ const VI_DOW = [
     { v: 5, t: "Thứ 6" },
     { v: 6, t: "Thứ 7" },
 ];
-
-// ----- helper đồng nhất hiển thị lỗi như trang ClassSchedulesPage -----
-function extractErr(e) {
-    const r = e?.response;
-    // Ưu tiên message từ BE (409, 400, 500 ...)
-    const msg =
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra khi lưu.";
-    return String(msg);
-}
 
 let fetchTeachers = async () => [];
 try {
@@ -60,6 +49,8 @@ export default function AddEditSchedulePage() {
     const { classId, id } = useParams();
     const nav = useNavigate();
 
+    const { showError, showSuccess, Toasts } = useToasts();
+
     const [form, setForm] = useState({
         classID: Number(classId),
         dayOfWeek: 1,
@@ -74,26 +65,11 @@ export default function AddEditSchedulePage() {
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
 
-    // ==== Toast lỗi: đếm ngược 5s + progress ====
-    const AUTO_DISMISS = 5000; // ms
-    const [err, setErr] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    function showError(msg) {
-        setErr(msg || "");
-        if (msg) setRemaining(AUTO_DISMISS);
-    }
-    useEffect(() => {
-        if (!err) return;
-        const startedAt = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
-            setRemaining(left);
-            if (left === 0) setErr("");
-        }, 1000);
-        return () => clearInterval(iv);
-    }, [err, AUTO_DISMISS]);
-
+    // Modal cảnh báo trùng HS
     const [warnings, setWarnings] = useState([]);
+    // Modal xác nhận khi KHÔNG trùng
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [confirmBusy, setConfirmBusy] = useState(false);
 
     useEffect(() => {
         let alive = true;
@@ -115,7 +91,7 @@ export default function AddEditSchedulePage() {
                     });
                 }
             } catch (e) {
-                showError(extractErr(e));
+                showError(extractErr(e) || "Không tải được dữ liệu.");
             } finally {
                 setLoading(false);
             }
@@ -127,7 +103,6 @@ export default function AddEditSchedulePage() {
     const onChange = (e) => {
         const { name, value, type, checked } = e.target;
         setForm((f) => ({ ...f, [name]: type === "checkbox" ? !!checked : value }));
-        if (err) showError("");
     };
 
     function validate() {
@@ -141,46 +116,71 @@ export default function AddEditSchedulePage() {
 
     async function onSubmit(ev) {
         ev.preventDefault();
-        showError("");
+        showError(""); // clear toasts cũ nếu có
 
         const v = validate();
-        if (v) return showError(v);
-
-        const payload = {
-            classID: Number(form.classID),
-            dayOfWeek: Number(form.dayOfWeek),
-            startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime,
-            endTime: form.endTime.length === 5 ? form.endTime + ":00" : form.endTime,
-            note: form.note?.trim() || "",
-            isActive: !!form.isActive,
-            teacherId: form.teacherId === "" ? null : Number(form.teacherId),
-        };
+        if (v) { showError(v); return; }
 
         try {
             setSaving(true);
 
-            // Cảnh báo trùng học sinh khi EDIT (giữ flow cũ)
-            if (id) {
-                const warn = await checkStudentOverlapForSchedule(id);
-                if (Array.isArray(warn) && warn.length) {
-                    setWarnings(warn);
-                    setSaving(false);
-                    return;
-                }
+            // 1) Preflight: kiểm tra trùng học sinh cho cả THÊM và SỬA
+            //    - Nếu CÓ trùng -> chỉ mở OverlapWarningModal và DỪNG (không xác nhận thêm)
+            //    - Nếu KHÔNG trùng -> mở ConfirmDialog rồi mới lưu (đồng bộ 2 file mẫu)
+            const warn = id
+                ? await checkStudentOverlapForSchedule(id)
+                : await checkStudentOverlapForSchedule(null, {
+                    classID: Number(form.classID),
+                    dayOfWeek: Number(form.dayOfWeek),
+                    startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime,
+                    endTime: form.endTime.length === 5 ? form.endTime + ":00" : form.endTime,
+                    teacherId: form.teacherId === "" ? null : Number(form.teacherId),
+                    isActive: !!form.isActive,
+                });
+
+            if (Array.isArray(warn) && warn.length) {
+                setWarnings(warn);            // chỉ hiện modal cảnh báo trùng HS
+                setSaving(false);
+                return;
             }
+
+            // Không có trùng -> bật xác nhận
+            setConfirmOpen(true);
+            setSaving(false);
+        } catch (e) {
+            setSaving(false);
+            showError(extractErr(e) || "Không kiểm tra được trùng lịch.");
+        }
+    }
+
+    async function doPersist() {
+        // Gọi khi người dùng ấn "Lưu" trong ConfirmDialog
+        setConfirmBusy(true);
+        try {
+            const payload = {
+                classID: Number(form.classID),
+                dayOfWeek: Number(form.dayOfWeek),
+                startTime: form.startTime.length === 5 ? form.startTime + ":00" : form.startTime,
+                endTime: form.endTime.length === 5 ? form.endTime + ":00" : form.endTime,
+                note: form.note?.trim() || "",
+                isActive: !!form.isActive,
+                teacherId: form.teacherId === "" ? null : Number(form.teacherId),
+            };
 
             if (id) {
                 await updateSchedule(id, payload);
+                showSuccess("Đã cập nhật lịch học."); // hiển thị ngay
                 nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã cập nhật lịch học." } });
             } else {
                 await createSchedule(payload);
+                showSuccess("Đã thêm lịch học mới.");
                 nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã thêm lịch học mới." } });
             }
         } catch (e) {
-            // Đồng nhất: hiển thị message trả về từ BE (409/400/500...)
-            showError(extractErr(e));
+            showError(extractErr(e) || "Lưu lịch học thất bại.");
         } finally {
-            setSaving(false);
+            setConfirmBusy(false);
+            setConfirmOpen(false);
         }
     }
 
@@ -192,37 +192,13 @@ export default function AddEditSchedulePage() {
                         <div className="box-body">Đang tải…</div>
                     </div>
                 </section>
-
-                {/* Toast lỗi khi đang loading */}
-                {err && (
-                    <div
-                        className="alert alert-danger"
-                        style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                    >
-                        <button type="button" className="close" onClick={() => showError("")}><span aria-hidden="true">&times;</span></button>
-                        {err}
-                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                            Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                        </div>
-                        <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                            <div
-                                style={{
-                                    height: "100%",
-                                    width: `${(remaining / AUTO_DISMISS) * 100}%`,
-                                    background: "#a94442",
-                                    transition: "width 100ms linear"
-                                }}
-                            />
-                        </div>
-                    </div>
-                )}
+                <Toasts />
             </>
         );
     }
 
     return (
         <>
-            {/* KHÔNG bọc content bằng .content-wrapper nữa (Layout đã có sẵn) */}
             <section className="content-header">
                 <h1>{id ? "Sửa lịch học" : "Thêm lịch học"}</h1>
                 <ol className="breadcrumb">
@@ -274,9 +250,8 @@ export default function AddEditSchedulePage() {
                                             {teachers.map((t) => {
                                                 const idv = t.teacherId ?? t.TeacherId;
                                                 const name = t.teacherName ?? t.fullName ?? t.FullName ?? `(GV #${idv})`;
-                                                const st = (t.status ?? t.Status ?? (t.isActive ? 1 : 0)); // 1=đang dạy, 0=ngừng
+                                                const st = (t.status ?? t.Status ?? (t.isActive ? 1 : 0)); // 1=đang dạy
                                                 const isDisabled = st !== 1;
-
                                                 return (
                                                     <option
                                                         key={idv}
@@ -290,7 +265,6 @@ export default function AddEditSchedulePage() {
                                                 );
                                             })}
                                         </select>
-
                                     </div>
                                 </div>
 
@@ -343,7 +317,7 @@ export default function AddEditSchedulePage() {
                         </div>
 
                         <div className="box-footer">
-                            <button type="submit" className="btn btn-primary" disabled={saving}>
+                            <button type="submit" className="btn btn-primary" disabled={saving || confirmBusy}>
                                 <i className="fa fa-save" /> Lưu
                             </button>
                             <Link to={`/classes/${form.classID}/schedules`} className="btn btn-default" style={{ marginLeft: 10 }}>
@@ -354,36 +328,7 @@ export default function AddEditSchedulePage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi (đếm ngược + progress) */}
-            {err && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => showError("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-
-                    {err}
-
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                    </div>
-
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(remaining / AUTO_DISMISS) * 100}%`,
-                                background: "#a94442",
-                                transition: "width 100ms linear"
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Modal cảnh báo học sinh trùng (giữ flow cũ) */}
+            {/* Modal cảnh báo học sinh trùng — CHỈ hiển thị, không xác nhận thêm */}
             {warnings.length > 0 && (
                 <OverlapWarningModal
                     open
@@ -402,12 +347,15 @@ export default function AddEditSchedulePage() {
                                 note: form.note?.trim() || "",
                                 isActive: !!form.isActive,
                                 teacherId: form.teacherId === "" ? null : Number(form.teacherId),
+                                // QUAN TRỌNG: thêm cờ override để BE cho phép lưu khi đã xác nhận
+                                OverrideStudentConflicts: true,
                             };
+
                             if (id) {
-                                await updateSchedule(id, payload);
+                                await updateSchedule(id, payload, { override: true });
                                 nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã cập nhật lịch học." } });
                             } else {
-                                await createSchedule(payload);
+                                await createSchedule(payload, { override: true });
                                 nav(`/classes/${form.classID}/schedules`, { state: { notice: "Đã thêm lịch học mới." } });
                             }
                         } catch (e) {
@@ -417,7 +365,28 @@ export default function AddEditSchedulePage() {
                         }
                     }}
                 />
+
             )}
+
+            {/* Modal xác nhận — CHỈ khi KHÔNG có trùng học sinh */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type="primary"
+                title={id ? "Xác nhận cập nhật lịch học" : "Xác nhận tạo lịch học"} // tiêu đề in đậm, căn giữa
+                message={
+                    id
+                        ? "Lưu các thay đổi cho lịch học này?"
+                        : "Tạo lịch học mới với thông tin đã nhập?"
+                }
+                confirmText={id ? "Lưu" : "Tạo mới"}
+                cancelText="Xem lại"
+                onCancel={() => !confirmBusy && setConfirmOpen(false)}
+                onConfirm={doPersist}
+                busy={confirmBusy}
+            />
+
+            {/* Toasts (success + error) dùng chung, đồng bộ với AddClassPage/ClassesPage */}
+            <Toasts />
         </>
     );
 }

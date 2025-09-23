@@ -1,18 +1,21 @@
 ﻿// src/Template/User/UsersPage.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-
-import { getUsers } from "./users"; // hàm fetch API Users
+import { getUsers } from "./users"; // API
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function UsersPage() {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
     const tableRef = useRef(null);
     const dtRef = useRef(null);
+
     const location = useLocation();
     const navigate = useNavigate();
-    const [notice, setNotice] = useState(location.state?.notice || "");
+
+    // Toasts đồng bộ (success + error)
+    const { showError, showSuccess, Toasts } = useToasts();
 
     // Load data
     useEffect(() => {
@@ -22,33 +25,28 @@ export default function UsersPage() {
                 const data = await getUsers();
                 if (alive) setRows(Array.isArray(data) ? data : []);
             } catch (e) {
-                if (alive) setErr(e?.message || "Fetch failed");
+                if (alive) showError(extractErr(e) || "Không tải được danh sách người dùng.");
             } finally {
                 if (alive) setLoading(false);
             }
         })();
         return () => { alive = false; };
-    }, []);
+    }, [showError]);
 
-    // Clear route state.notice sau khi hiển thị 1 lần
+    // Hiển thị notice (từ AddUser/EditUser) rồi xóa state để không lặp
     useEffect(() => {
-        if (location.state?.notice) {
-            // xóa state ngay lập tức (không gây re-render loop)
-            setTimeout(() => navigate(".", { replace: true, state: {} }), 0);
+        const notice = location.state?.notice;
+        if (notice) {
+            showSuccess(notice);
+            // xóa state ngay để F5 không hiện lại
+            navigate(".", { replace: true, state: {} });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Tự ẩn thông báo sau 4s
-    useEffect(() => {
-        if (!notice) return;
-        const t = setTimeout(() => setNotice(""), 4000);
-        return () => clearTimeout(t);
-    }, [notice]);
-
     // Init DataTable
     useEffect(() => {
-        if (loading || err) return;
+        if (loading) return;
         const $ = window.jQuery || window.$;
         if (!$?.fn?.DataTable || !tableRef.current) return;
 
@@ -90,39 +88,13 @@ export default function UsersPage() {
         return () => {
             window.removeEventListener("resize", onResize);
             obs.disconnect();
-            try { dt.destroy(true); } catch { /* empty */ }
+            try { dt.destroy(true); } catch { /* noop */ }
             dtRef.current = null;
         };
-    }, [loading, err, rows]);
+    }, [loading, rows]);
 
     return (
         <>
-            {/* Toast thành công (tự ẩn sau 4s) — giống Schedule */}
-            {notice && (
-                <div
-                    className="alert alert-success"
-                    style={{
-                        position: "fixed",
-                        top: 70,
-                        right: 16,
-                        zIndex: 9999,
-                        maxWidth: 420,
-                        boxShadow: "0 4px 12px rgba(0,0,0,.15)",
-                    }}
-                >
-                    <button
-                        type="button"
-                        className="close"
-                        onClick={() => setNotice("")}
-                        aria-label="Close"
-                        style={{ marginLeft: 8 }}
-                    >
-                        <span aria-hidden="true">&times;</span>
-                    </button >
-                    {notice}
-                </div >
-            )
-            }
             <section className="content-header">
                 <h1>Bảng thông tin tài khoản</h1>
                 <ol className="breadcrumb">
@@ -135,8 +107,8 @@ export default function UsersPage() {
                 <div className="box">
                     <div className="box-body">
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <p className="text-red">Lỗi: {err}</p>}
-                        {!loading && !err && (
+
+                        {!loading && (
                             <div className="table-responsive">
                                 <table
                                     id="usersTable"
@@ -148,7 +120,6 @@ export default function UsersPage() {
                                         <tr>
                                             <th style={{ width: 80 }}>ID</th>
                                             <th>Email</th>
-
                                             <th>Vai trò</th>
                                             <th>Trạng thái</th>
                                             <th>Hành động</th>
@@ -159,7 +130,6 @@ export default function UsersPage() {
                                             <tr key={x.userId}>
                                                 <td>{x.userId}</td>
                                                 <td>{x.userEmail}</td>
-
                                                 <td>{x.role}</td>
                                                 <td>
                                                     <span className={`label ${x.status === 1 ? "label-success" : "label-default"}`}>
@@ -180,7 +150,9 @@ export default function UsersPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }
-

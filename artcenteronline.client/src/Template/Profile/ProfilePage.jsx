@@ -1,15 +1,28 @@
 ﻿// src/Template/Profile/ProfilePage.jsx
 import React, { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/authCore";
 import { getTeacher, updateTeacher } from "../Teacher/Teachers";
 import { updateUser } from "../User/users";
+import { useToasts } from "../../hooks/useToasts";
+import extractErr from "../../utils/extractErr";
+import ConfirmDialog from "../../component/ConfirmDialog";
 
 export default function ProfilePage() {
-    const auth = useAuth();
-    const roles = auth?.roles ?? [];
-    const isAdmin = roles.includes("Admin");
+    const auth = useAuth() || {};
+    const roles = auth.roles || [];
+    const isLoggedIn = !!auth?.user || !!auth?.token;
     const isTeacher = roles.includes("Teacher");
-    const isStudent = roles.includes("Student");
+
+    const navigate = useNavigate();
+    const { showError, showSuccess, Toasts } = useToasts();
+
+    // Guard: chưa đăng nhập -> login (đồng bộ cách làm ở ClassesPage)
+    useEffect(() => {
+        if (!isLoggedIn) {
+            navigate("/login", { replace: true, state: { flash: "Vui lòng đăng nhập để tiếp tục." } });
+        }
+    }, [isLoggedIn, navigate]);
 
     const myUserId = useMemo(
         () => auth?.user?.userId ?? auth?.user?.UserId ?? null,
@@ -19,9 +32,6 @@ export default function ProfilePage() {
         () => auth?.user?.teacherId ?? auth?.user?.TeacherId ?? null,
         [auth?.user]
     );
-
-    const [err, setErr] = useState("");
-    const [notice, setNotice] = useState("");
 
     // ===== Teacher profile =====
     const [tFullName, setTFullName] = useState(
@@ -39,37 +49,9 @@ export default function ProfilePage() {
         ""
     );
     const [savingTeacher, setSavingTeacher] = useState(false);
+    const [confirmTeacherOpen, setConfirmTeacherOpen] = useState(false);
 
-    const onUpdateTeacher = async (e) => {
-        e.preventDefault();
-        setErr(""); setNotice("");
-        if (!myTeacherId) {
-            setErr("Không xác định được TeacherId.");
-            return;
-        }
-        try {
-            setSavingTeacher(true);
-            await updateTeacher(myTeacherId, {
-                TeacherName: tFullName,
-                PhoneNumber: tPhone,
-            });
-            auth?.updateUser?.((u) => ({
-                ...u,
-                fullName: tFullName,
-                phoneNumber: tPhone,
-                FullName: tFullName,
-                PhoneNumber: tPhone,
-            }));
-            setNotice("Đã cập nhật hồ sơ giáo viên.");
-        } catch (ex) {
-            const data = ex?.response?.data;
-            const m = (typeof data === "string") ? data : (data?.message || data?.detail);
-            setErr(m || ex?.message || "Cập nhật hồ sơ thất bại.");
-        } finally {
-            setSavingTeacher(false);
-        }
-    };
-
+    // Tải thông tin GV lần đầu (nếu có TeacherId)
     useEffect(() => {
         const load = async () => {
             if (!isTeacher || !myTeacherId) return;
@@ -79,192 +61,236 @@ export default function ProfilePage() {
                 const phone = t?.phoneNumber ?? t?.PhoneNumber ?? "";
                 if (!tFullName) setTFullName(name);
                 if (!tPhone) setTPhone(phone);
-            } catch { /* ignore */ }
+            } catch (e) {
+                // Không làm ồn, chỉ báo lỗi nếu người dùng thao tác lưu
+            }
         };
         load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isTeacher, myTeacherId]);
 
-    // ===== Account (email readonly + đổi mật khẩu realtime validation) =====
+    function submitTeacher(e) {
+        e.preventDefault();
+        if (!myTeacherId) {
+            showError("Không xác định được TeacherId.");
+            return;
+        }
+        setConfirmTeacherOpen(true); // xác nhận trước khi lưu
+    }
+
+    async function doUpdateTeacher() {
+        setConfirmTeacherOpen(false);
+        if (!myTeacherId) return;
+        try {
+            setSavingTeacher(true);
+            await updateTeacher(myTeacherId, {
+                TeacherName: (tFullName || "").trim(),
+                PhoneNumber: (tPhone || "").trim(),
+            });
+
+            // Cập nhật auth local cho đồng bộ UI
+            auth?.updateUser?.((u) => ({
+                ...u,
+                fullName: tFullName,
+                phoneNumber: tPhone,
+                FullName: tFullName,
+                PhoneNumber: tPhone,
+            }));
+
+            showSuccess("Đã cập nhật hồ sơ giáo viên.");
+        } catch (ex) {
+            showError(extractErr(ex));
+        } finally {
+            setSavingTeacher(false);
+        }
+    }
+
+    // ===== Account (đổi mật khẩu với kiểm tra realtime) =====
     const [aEmail] = useState(auth?.user?.email ?? auth?.user?.Email ?? "");
     const [aPassword, setAPassword] = useState("");
     const [aPassword2, setAPassword2] = useState("");
-    const [pwTouched, setPwTouched] = useState(false);
-    const [pw2Touched, setPw2Touched] = useState(false);
     const [savingAccount, setSavingAccount] = useState(false);
+    const [confirmAccountOpen, setConfirmAccountOpen] = useState(false);
 
     const trimmedPw = (aPassword || "").trim();
     const trimmedPw2 = (aPassword2 || "").trim();
     const pwTooShort = !!trimmedPw && trimmedPw.length < 6;
     const pwMismatch = (!!trimmedPw || !!trimmedPw2) && trimmedPw !== trimmedPw2;
-    const pwMatchOk = !!trimmedPw && !!trimmedPw2 && trimmedPw === trimmedPw2 && !pwTooShort;
     const accountInvalid = pwTooShort || pwMismatch;
 
-    const onUpdateAccount = async (e) => {
+    function submitAccount(e) {
         e.preventDefault();
-        setErr(""); setNotice("");
         if (!myUserId) {
-            setErr("Không xác định được UserId.");
+            showError("Không xác định được UserId.");
             return;
         }
         if (accountInvalid) {
-            setErr("Vui lòng sửa lỗi ở phần mật khẩu trước khi lưu.");
+            showError("Vui lòng sửa lỗi ở phần mật khẩu trước khi lưu.");
             return;
         }
+        // Nếu không nhập mật khẩu mới, báo “không có thay đổi”
+        if (!trimmedPw) {
+            showSuccess("Không có thay đổi để lưu.");
+            return;
+        }
+        setConfirmAccountOpen(true);
+    }
+
+    async function doUpdateAccount() {
+        setConfirmAccountOpen(false);
+        if (!myUserId) return;
         try {
             setSavingAccount(true);
             const payload = {};
             if (trimmedPw) payload.Password = trimmedPw;
             await updateUser(myUserId, payload);
 
+            // Reset form
             setAPassword("");
             setAPassword2("");
-            setPwTouched(false);
-            setPw2Touched(false);
 
-            setNotice(trimmedPw ? "Đã cập nhật mật khẩu." : "Không có thay đổi để lưu.");
+            showSuccess("Đã cập nhật mật khẩu.");
         } catch (ex) {
-            const data = ex?.response?.data;
-            const m = (typeof data === "string") ? data : (data?.message || data?.detail);
-            setErr(m || ex?.message || "Cập nhật tài khoản thất bại.");
+            showError(extractErr(ex));
         } finally {
             setSavingAccount(false);
         }
-    };
-
-    useEffect(() => {
-        if (!notice) return;
-        const t = setTimeout(() => setNotice(""), 4000);
-        return () => clearTimeout(t);
-    }, [notice]);
-
-    const fgClass = (error, success) => {
-        if (error) return "form-group has-error";
-        if (success) return "form-group has-success";
-        return "form-group";
-    };
+    }
 
     return (
         <>
-            {/* Toast thành công */}
-            {notice && (
-                <div
-                    className="alert alert-success"
-                    style={{
-                        position: "fixed",
-                        top: 70,
-                        right: 16,
-                        zIndex: 9999,
-                        maxWidth: 420,
-                        boxShadow: "0 4px 12px rgba(0,0,0,.15)",
-                    }}
-                >
-                    <button
-                        type="button"
-                        className="close"
-                        onClick={() => setNotice("")}
-                        aria-label="Close"
-                        style={{ marginLeft: 8 }}
-                    >
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {notice}
-                </div>
-            )}
-
             <section className="content-header">
-                <h1>Thông tin cá nhân</h1>
+                <h1>Hồ sơ của tôi</h1>
+                <ol className="breadcrumb">
+                    <li><a href="/"><i className="fa fa-dashboard" /> Trang chủ</a></li>
+                    <li className="active">Hồ sơ</li>
+                </ol>
             </section>
 
             <section className="content">
-                {err && <div className="alert alert-danger">{err}</div>}
-
-                {isTeacher && (
+                {/* Hồ sơ Giáo viên (chỉ hiện nếu có TeacherId) */}
+                {myTeacherId?  (
                     <div className="box box-primary">
                         <div className="box-header with-border">
-                            <h3 className="box-title">Cập nhật thông tin giáo viên</h3>
+                            <h3 className="box-title">Thông tin giáo viên</h3>
                         </div>
-                        <form className="box-body" onSubmit={onUpdateTeacher}>
-                            <div className="form-group">
-                                <label>Họ tên</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    value={tFullName}
-                                    onChange={(e) => setTFullName(e.target.value)}
-                                />
+                        <form onSubmit={submitTeacher}>
+                            <div className="box-body">
+                                <div className="form-group">
+                                    <label>Họ và tên</label>
+                                    <input
+                                        className="form-control"
+                                        value={tFullName}
+                                        onChange={(e) => setTFullName(e.target.value)}
+                                        placeholder="Nhập họ và tên"
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Số điện thoại</label>
+                                    <input
+                                        className="form-control"
+                                        value={tPhone}
+                                        onChange={(e) => setTPhone(e.target.value)}
+                                        placeholder="Nhập số điện thoại"
+                                    />
+                                </div>
                             </div>
-                            <div className="form-group">
-                                <label>Số điện thoại</label>
-                                <input
-                                    type="text"
-                                    className="form-control"
-                                    value={tPhone}
-                                    onChange={(e) => setTPhone(e.target.value)}
-                                />
+                            <div className="box-footer">
+                                <button
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={savingTeacher}
+                                    title="Lưu hồ sơ giáo viên"
+                                >
+                                    {savingTeacher ? <i className="fa fa-spinner fa-spin" /> : <i className="fa fa-check" />}{" "}
+                                    Lưu hồ sơ
+                                </button>
                             </div>
-                            <button className="btn btn-primary" disabled={savingTeacher}>
-                                {savingTeacher ? "Đang lưu..." : "Cập nhật hồ sơ giáo viên"}
-                            </button>
                         </form>
                     </div>
-                )}
+                ): null}
 
-                {(isAdmin || isTeacher || isStudent) && (
-                    <div className="box box-warning">
-                        <div className="box-header with-border">
-                            <h3 className="box-title">Cập nhật tài khoản</h3>
-                        </div>
-                        <form className="box-body" onSubmit={onUpdateAccount}>
+                {/* Tài khoản (Email + đổi mật khẩu) */}
+                <div className="box box-info">
+                    <div className="box-header with-border">
+                        <h3 className="box-title">Tài khoản</h3>
+                    </div>
+                    <form onSubmit={submitAccount}>
+                        <div className="box-body">
                             <div className="form-group">
                                 <label>Email</label>
-                                <input type="email" className="form-control" value={aEmail} disabled />
-                                <p className="help-block">Email không thể thay đổi.</p>
+                                <input className="form-control" value={aEmail} disabled readOnly />
                             </div>
 
-                            <div className={fgClass(pwTouched && pwTooShort, false)}>
-                                <label>Mật khẩu mới (tùy chọn)</label>
+                            <div className={`form-group ${pwTooShort ? "has-error" : ""}`}>
+                                <label>Mật khẩu mới</label>
                                 <input
                                     type="password"
                                     className="form-control"
                                     value={aPassword}
                                     onChange={(e) => setAPassword(e.target.value)}
-                                    onBlur={() => setPwTouched(true)}
-                                    placeholder="Để trống nếu không đổi"
+                                    placeholder="Ít nhất 6 ký tự"
                                 />
-                                {pwTouched && pwTooShort && (
-                                    <p className="help-block">Mật khẩu mới phải có ít nhất 6 ký tự.</p>
-                                )}
+                                {pwTooShort && <span className="help-block">Mật khẩu tối thiểu 6 ký tự.</span>}
                             </div>
 
-                            <div className={fgClass(pw2Touched && pwMismatch, pw2Touched && pwMatchOk)}>
-                                <label>Xác nhận mật khẩu mới</label>
+                            <div className={`form-group ${pwMismatch ? "has-error" : ""}`}>
+                                <label>Nhập lại mật khẩu mới</label>
                                 <input
                                     type="password"
                                     className="form-control"
                                     value={aPassword2}
                                     onChange={(e) => setAPassword2(e.target.value)}
-                                    onBlur={() => setPw2Touched(true)}
                                     placeholder="Nhập lại mật khẩu mới"
                                 />
-                                {pw2Touched && pwMismatch && (
-                                    <p className="help-block">Xác nhận mật khẩu không khớp.</p>
-                                )}
-                                {pw2Touched && pwMatchOk && (
-                                    <p className="help-block text-green">Mật khẩu khớp.</p>
-                                )}
+                                {pwMismatch && <span className="help-block">Mật khẩu nhập lại không khớp.</span>}
                             </div>
+                        </div>
 
+                        <div className="box-footer">
                             <button
-                                className="btn btn-warning"
-                                disabled={savingAccount || accountInvalid}
+                                type="submit"
+                                className="btn btn-primary"
+                                disabled={savingAccount}
+                                title="Lưu thay đổi tài khoản"
                             >
-                                {savingAccount ? "Đang lưu..." : "Cập nhật tài khoản"}
+                                {savingAccount ? <i className="fa fa-spinner fa-spin" /> : <i className="fa fa-check" />}{" "}
+                                Cập nhật tài khoản
                             </button>
-                        </form>
-                    </div>
-                )}
+                        </div>
+                    </form>
+                </div>
             </section>
+
+            {/* Xác nhận lưu hồ sơ giáo viên */}
+            <ConfirmDialog
+                open={confirmTeacherOpen}
+                type="primary"
+                title="Xác nhận"
+                message="Lưu thay đổi cho hồ sơ giáo viên?"
+                confirmText="Lưu"
+                cancelText="Hủy"
+                onCancel={() => setConfirmTeacherOpen(false)}
+                onConfirm={doUpdateTeacher}
+                busy={savingTeacher}
+            />
+
+            {/* Xác nhận đổi mật khẩu */}
+            <ConfirmDialog
+                open={confirmAccountOpen}
+                type="primary"
+                title="Xác nhận"
+                message="Cập nhật mật khẩu cho tài khoản của bạn?"
+                confirmText="Cập nhật"
+                cancelText="Hủy"
+                onCancel={() => setConfirmAccountOpen(false)}
+                onConfirm={doUpdateAccount}
+                busy={savingAccount}
+            />
+
+            {/* Toasts dùng chung (thành công/lỗi) */}
+            <Toasts />
         </>
     );
 }

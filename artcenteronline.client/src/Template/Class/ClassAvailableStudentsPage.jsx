@@ -3,8 +3,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { addStudentToClass, addStudentsToClassBatch } from "./classStudents";
 import { getActiveStudentsNotInClass } from "../Student/Students";
-import { getClass } from "../Class/classes";
+import { getClass } from "./classes";                       // đồng bộ path với các trang khác
 import { useAuth } from "../../auth/authCore";
+import extractErr from "../../utils/extractErr";
+import ConfirmDialog from "../../component/ConfirmDialog";
+import { useToasts } from "../../hooks/useToasts";
 
 export default function ClassAvailableStudentsPage() {
     const { classId } = useParams();
@@ -15,24 +18,30 @@ export default function ClassAvailableStudentsPage() {
     const isAdmin = auth.isAdmin ?? roles.includes("Admin");
     const isLoggedIn = !!auth?.user || !!auth?.token;
 
+    const { showError, showSuccess, Toasts } = useToasts();
+
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
+    const [hardErr, setHardErr] = useState("");     // lỗi chặn hiển thị bảng
     const [selected, setSelected] = useState(new Set());
     const [classInfo, setClassInfo] = useState(null);
+
     const tableRef = useRef(null);
     const dtRef = useRef(null);
 
+    // Guard
     useEffect(() => {
         if (!isLoggedIn) {
             navigate("/login", { replace: true, state: { flash: "Vui lòng đăng nhập để tiếp tục." } });
             return;
         }
         if (!isAdmin) {
-            setErr("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
+            setHardErr("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
             setLoading(false);
+            showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin).");
         }
-    }, [isLoggedIn, isAdmin, navigate]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoggedIn, isAdmin]);
 
     // Chuẩn hoá item
     const normalize = (x, i) => {
@@ -55,38 +64,42 @@ export default function ClassAvailableStudentsPage() {
         return { id, name, parent, phone, address, startDate };
     };
 
-    // Load data (chỉ Admin)
+    // Load data
     useEffect(() => {
         if (!isLoggedIn || !isAdmin) return;
         let alive = true;
         (async () => {
             try {
-                const data = await getActiveStudentsNotInClass(classId);
-                const cls = await getClass(classId);
-                const ClassName = cls?.ClassName ?? cls?.className;
-                setClassInfo({ classId, ClassName });
+                const [data, cls] = await Promise.all([
+                    getActiveStudentsNotInClass(classId),
+                    getClass(classId),
+                ]);
                 if (!alive) return;
+                const ClassName = cls?.ClassName ?? cls?.className ?? `#${classId}`;
+                setClassInfo({ classId, ClassName });
                 const arr = Array.isArray(data) ? data : [];
                 setRows(arr.map((x, i) => normalize(x, i)));
             } catch (e) {
-                if (alive) {
-                    const s = e?.response?.status;
-                    if (s === 401) {
-                        navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
-                        return;
-                    }
-                    setErr(e?.userMessage || e?.message || "Fetch failed");
+                if (!alive) return;
+                const s = e?.response?.status;
+                if (s === 401) {
+                    navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+                    return;
                 }
+                const msg = extractErr(e);
+                setHardErr(msg);
+                showError(msg);
             } finally {
                 if (alive) setLoading(false);
             }
         })();
         return () => { alive = false; };
-    }, [classId, isLoggedIn, isAdmin, navigate]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [classId, isLoggedIn, isAdmin]);
 
-    // DataTable (AdminLTE)
+    // DataTable
     useEffect(() => {
-        if (loading || err || !isAdmin) return;
+        if (loading || hardErr || !isAdmin) return;
         const $ = window.jQuery || window.$;
         const el = tableRef.current;
         if (!el || !$.fn?.DataTable) return;
@@ -106,11 +119,19 @@ export default function ClassAvailableStudentsPage() {
             pageLength: 10,
             dom: "<'row'<'col-sm-6'l><'col-sm-6'f>>tr<'row'<'col-sm-5'i><'col-sm-7'p>>",
             language: {
-                search: "Tìm kiếm:",
+                decimal: ",",
+                thousands: ".",
+                emptyTable: "Không có dữ liệu",
+                info: "Hiển thị _START_–_END_ trên tổng _TOTAL_ dòng",
+                infoEmpty: "Hiển thị 0–0 trên tổng 0 dòng",
+                infoFiltered: "(lọc từ _MAX_ dòng)",
                 lengthMenu: "Hiện _MENU_ dòng",
-                info: "Hiển thị _START_-_END_ / _TOTAL_ dòng",
-                paginate: { previous: "Trước", next: "Sau" },
-                zeroRecords: "Không có dữ liệu",
+                loadingRecords: "Đang tải...",
+                processing: "Đang xử lý...",
+                search: "Tìm kiếm:",
+                zeroRecords: "Không tìm thấy kết quả phù hợp",
+                paginate: { first: "Đầu", last: "Cuối", next: "Sau", previous: "Trước" },
+                aria: { sortAscending: ": sắp xếp tăng dần", sortDescending: ": sắp xếp giảm dần" },
             },
             columnDefs: [
                 { targets: 0, width: 30, orderable: false },
@@ -132,9 +153,9 @@ export default function ClassAvailableStudentsPage() {
             try { dt.destroy(); } catch { /* ignore */ }
             dtRef.current = null;
         };
-    }, [loading, err, rows, isAdmin]);
+    }, [loading, hardErr, rows, isAdmin]);
 
-    // Actions
+    // ===== Select helpers =====
     const toggleSelect = (id, checked) => {
         const next = new Set(selected);
         if (checked) next.add(id);
@@ -142,43 +163,67 @@ export default function ClassAvailableStudentsPage() {
         setSelected(next);
     };
 
-    const handleAddOne = async (id) => {
-        try {
-            if (!isAdmin) { alert("Bạn không có quyền thực hiện thao tác này (chỉ Admin)."); return; }
-            await addStudentToClass(classId, id);
-            const cls = await getClass(classId);
-            navigate("/classes", {
-                replace: true,
-                state: { flash: `Đã thêm 1 học viên vào lớp ${cls.className}` },
-            });
-        } catch (e) {
-            if (e?.response?.status === 401) {
-                navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
-                return;
-            }
-            alert(e?.userMessage || e?.message || "Thêm học viên thất bại");
-        }
-    };
+    // ===== Xác nhận & hành động: Thêm 1 =====
+    const [confirmOneOpen, setConfirmOneOpen] = useState(false);
+    const [targetStudentId, setTargetStudentId] = useState(null);
+    const [busyOne, setBusyOne] = useState(false);
 
-    const handleAddSelected = async () => {
-        if (selected.size === 0) return;
+    function askAddOne(id) {
+        setTargetStudentId(id);
+        setConfirmOneOpen(true);
+    }
+
+    async function doAddOne() {
+        if (!targetStudentId) return;
+        if (!isAdmin) { showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin)."); return; }
+        setBusyOne(true);
         try {
-            if (!isAdmin) { alert("Bạn không có quyền thực hiện thao tác này (chỉ Admin)."); return; }
-            const count = selected.size;
-            const cls = await getClass(classId);
-            await addStudentsToClassBatch(classId, Array.from(selected));
-            navigate("/classes", {
-                replace: true,
-                state: { flash: `Đã thêm ${count} học viên vào lớp ${cls.className}` },
-            });
+            await addStudentToClass(classId, targetStudentId);
+            // Điều hướng về /classes kèm notice để trang đích show toast thành công đồng bộ
+            navigate("/classes", { replace: true, state: { notice: "Cập nhật danh sách lớp thành công" } });
         } catch (e) {
             if (e?.response?.status === 401) {
                 navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
                 return;
             }
-            alert(e?.userMessage || e?.message || "Thêm hàng loạt thất bại");
+            showError(extractErr(e) || "Thêm học viên thất bại");
+        } finally {
+            setBusyOne(false);
+            setConfirmOneOpen(false);
+            setTargetStudentId(null);
         }
-    };
+    }
+
+    // ===== Xác nhận & hành động: Thêm nhiều =====
+    const [confirmBatchOpen, setConfirmBatchOpen] = useState(false);
+    const [busyBatch, setBusyBatch] = useState(false);
+
+    function askAddSelected() {
+        if (selected.size === 0) {
+            showError("Vui lòng chọn ít nhất 1 học viên.");
+            return;
+        }
+        setConfirmBatchOpen(true);
+    }
+
+    async function doAddSelected() {
+        if (selected.size === 0) return;
+        if (!isAdmin) { showError("Bạn không có quyền thực hiện thao tác này (chỉ Admin)."); return; }
+        setBusyBatch(true);
+        try {
+            await addStudentsToClassBatch(classId, Array.from(selected));
+            navigate("/classes", { replace: true, state: { notice: "Cập nhật danh sách lớp thành công" } });
+        } catch (e) {
+            if (e?.response?.status === 401) {
+                navigate("/login", { replace: true, state: { flash: "Phiên đăng nhập đã hết hạn." } });
+                return;
+            }
+            showError(extractErr(e) || "Thêm học viên (nhiều) thất bại");
+        } finally {
+            setBusyBatch(false);
+            setConfirmBatchOpen(false);
+        }
+    }
 
     return (
         <>
@@ -196,7 +241,12 @@ export default function ClassAvailableStudentsPage() {
                     <div className="box-header with-border" style={{ display: "flex", justifyContent: "space-between" }}>
                         <h3 className="box-title">Danh sách (chỉ “Đang học” & chưa thuộc lớp)</h3>
                         <div className="box-tools" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <button className="btn btn-success btn-sm" onClick={handleAddSelected} disabled={!isAdmin || selected.size === 0}>
+                            <button
+                                className="btn btn-success btn-sm"
+                                onClick={askAddSelected}
+                                disabled={!isAdmin || selected.size === 0}
+                                title={selected.size ? `Thêm ${selected.size} học viên đã chọn` : "Chọn học viên để thêm"}
+                            >
                                 <i className="fa fa-user-plus" /> Thêm ({selected.size}) đã chọn
                             </button>
                             <button className="btn btn-default btn-sm" onClick={() => navigate(-1)}>
@@ -207,9 +257,13 @@ export default function ClassAvailableStudentsPage() {
 
                     <div className="box-body">
                         {loading && <p className="text-muted">Đang tải…</p>}
-                        {err && <p className="text-red" style={{ whiteSpace: "pre-wrap" }}>Lỗi: {err}</p>}
+                        {hardErr && (
+                            <p className="text-red" style={{ whiteSpace: "pre-wrap" }}>
+                                Lỗi: {hardErr}
+                            </p>
+                        )}
 
-                        {!loading && !err && isAdmin && (
+                        {!loading && !hardErr && isAdmin && (
                             <div className="table-responsive">
                                 <table
                                     id="AvailableStudentsTable"
@@ -258,9 +312,15 @@ export default function ClassAvailableStudentsPage() {
                                                 <td>{r.address}</td>
                                                 <td>{r.startDate}</td>
                                                 <td>
-                                                    <button className="btn btn-xs btn-success" onClick={() => handleAddOne(r.id)} disabled={!isAdmin}>
-                                                        <i className="fa fa-user-plus" /> Thêm
-                                                    </button>
+                                                    {isAdmin ? (
+                                                        <button className="btn btn-xs btn-success" onClick={() => askAddOne(r.id)}>
+                                                            <i className="fa fa-user-plus" /> Thêm
+                                                        </button>
+                                                    ) : (
+                                                        <button className="btn btn-xs btn-default disabled" disabled title="Chỉ Admin được thêm">
+                                                            <i className="fa fa-user-plus" /> Thêm
+                                                        </button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
@@ -271,6 +331,36 @@ export default function ClassAvailableStudentsPage() {
                     </div>
                 </div>
             </section>
+
+            {/* Modal xác nhận: thêm 1 */}
+            <ConfirmDialog
+                open={confirmOneOpen}
+                type="primary"
+                title="Xác nhận thêm học viên"
+                message={`Thêm học viên #${targetStudentId} vào lớp ${classInfo?.ClassName || `#${classId}`}?`}
+                confirmText="Thêm"
+                cancelText="Để sau"
+                onCancel={() => { if (!busyOne) { setConfirmOneOpen(false); setTargetStudentId(null); } }}
+                onConfirm={doAddOne}
+                busy={busyOne}
+            />
+
+            {/* Modal xác nhận: thêm nhiều */}
+            <ConfirmDialog
+                open={confirmBatchOpen}
+                type="primary"
+                title="Xác nhận thêm nhiều học viên"
+                message={`Thêm ${selected.size} học viên đã chọn vào lớp ${classInfo?.ClassName || `#${classId}`}?`}
+                details="Bạn có thể quản lý học viên trong lớp ở trang 'Xem học viên'."
+                confirmText="Thêm"
+                cancelText="Huỷ"
+                onCancel={() => { if (!busyBatch) setConfirmBatchOpen(false); }}
+                onConfirm={doAddSelected}
+                busy={busyBatch}
+            />
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

@@ -1,7 +1,9 @@
 ﻿// src/Template/Student/AddStudentPage.jsx
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createStudent } from "./students.js"; // POST /Students
+import { useToasts } from "../../hooks/useToasts";
+import extractErr from "../../utils/extractErr";
 
 /** dd/MM/yyyy -> ISO yyyy-MM-dd (or null if invalid) */
 function dmyToISO(dmy) {
@@ -21,51 +23,9 @@ function isoToDMY(iso) {
     return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
-// ===== Toast giống AddTeacherPage =====
-const AUTO_DISMISS = 5000;
-function useToast() {
-    const [msg, setMsg] = useState("");
-    const [remaining, setRemaining] = useState(0);
-
-    useEffect(() => {
-        if (!msg) return;
-        const start = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - start));
-            setRemaining(left);
-            if (left === 0) setMsg("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [msg]);
-
-    return {
-        msg,
-        remaining,
-        show: (m) => {
-            setMsg(m || "Đã xảy ra lỗi.");
-            setRemaining(AUTO_DISMISS);
-        },
-        hide: () => setMsg(""),
-    };
-}
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra."
-    );
-}
-
 export default function AddStudentPage() {
     const navigate = useNavigate();
-    const toast = useToast();
-
-    // Thông tin thành công để bật modal
-    const [successInfo, setSuccessInfo] = useState(null); // { studentId, email, tempPassword }
+    const { showError, Toasts } = useToasts(); // giữ Toasts để báo lỗi
 
     // --- form state (ngày ở dạng ISO yyyy-MM-dd)
     const [form, setForm] = useState({
@@ -85,13 +45,11 @@ export default function AddStudentPage() {
     });
 
     const [saving, setSaving] = useState(false);
-    const [errors, setErrors] = useState([]); // lỗi validate form tổng quát
     const [ngayBatDauHocText, setNgayBatDauHocText] = useState("");
 
-    useEffect(() => {
-        setNgayBatDauHocText(isoToDMY(form.ngayBatDauHoc));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    // Modal “Tạo tài khoản thành công” (căn giữa)
+    const [successInfo, setSuccessInfo] = useState(null);
+    // successInfo shape: { studentId?: number, email?: string, tempPassword?: string }
 
     const setField = (name, value) => setForm((prev) => ({ ...prev, [name]: value }));
 
@@ -113,10 +71,6 @@ export default function AddStudentPage() {
 
     // Khi có Email -> bắt buộc Password >=6 và ConfirmPassword khớp
     const requireAccount = !!email;
-    // eslint-disable-next-line no-unused-vars
-    const accountInvalid =
-        (requireAccount && (!pw || pw.length < 6)) ||
-        (requireAccount && (cpw !== pw));
 
     function validate() {
         const errs = [];
@@ -137,19 +91,20 @@ export default function AddStudentPage() {
         return errs;
     }
 
-    // disable nút Lưu khi không hợp lệ
+    // disable nút Lưu khi không hợp lệ (UI hỗ trợ; vẫn sẽ validate khi submit)
     const formInvalid =
         !String(form.StudentName || "").trim() ||
         !form.ngayBatDauHoc ||
         (email && emailInvalid) ||
         (requireAccount && (pwTooShort || cpwMismatch || !pw || !cpw));
 
+    // Submit: không ConfirmDialog nữa — tạo luôn,
+    // thành công thì hiện modal “Tạo tài khoản thành công”
     async function onSubmit(e) {
         e.preventDefault();
-        setErrors([]);
         const v = validate();
         if (v.length) {
-            setErrors(v);
+            showError(v.join("\n")); // dùng Toasts cho lỗi
             return;
         }
 
@@ -170,15 +125,22 @@ export default function AddStudentPage() {
             };
 
             const res = await createStudent(payload);
-            const info = {
-                studentId: res?.studentId ?? res?.StudentId ?? res?.id ?? null,
-                email: res?.email ?? (res?.StudentId ? `student${res.StudentId}@example.com` : null),
-                tempPassword: res?.tempPassword ?? (email ? form.Password : "123456"),
-            };
-            if (!info.email && info.studentId != null) info.email = `student${info.studentId}@example.com`;
-            setSuccessInfo(info);
+
+            // Thử lấy dữ liệu trả về
+            const data = res?.data ?? res ?? {};
+            const studentId =
+                data.studentId ?? data.StudentId ?? data.id ?? data.Id ?? null;
+            const tempPassword =
+                data.tempPassword ?? data.TempPassword ?? data.password ?? null;
+
+            // Hiện modal “Tạo tài khoản thành công” ở giữa trang
+            setSuccessInfo({
+                studentId,
+                email: email || data.email || data.Email || null,
+                tempPassword: tempPassword || (email ? form.Password : null),
+            });
         } catch (e) {
-            toast.show(extractErr(e)); // ví dụ 409 trùng email
+            showError(extractErr(e) || "Thêm học viên thất bại.");
         } finally {
             setSaving(false);
         }
@@ -203,17 +165,6 @@ export default function AddStudentPage() {
                             <div className="box-header with-border">
                                 <h3 className="box-title">Thông tin học viên</h3>
                             </div>
-
-                            {/* Khối lỗi tổng quát */}
-                            {errors.length > 0 && (
-                                <div className="box-body">
-                                    <div className="alert alert-danger">
-                                        <ul style={{ marginBottom: 0 }}>
-                                            {errors.map((er, i) => <li key={i}>{er}</li>)}
-                                        </ul>
-                                    </div>
-                                </div>
-                            )}
 
                             <div className="box-body">
                                 <form onSubmit={onSubmit}>
@@ -305,7 +256,7 @@ export default function AddStudentPage() {
                                         />
                                     </div>
 
-                                    {/* Số buổi học còn lại */}
+                                    {/* Số buổi học đã đóng */}
                                     <div className="form-group">
                                         <label htmlFor="SoBuoiHocConLai">Số buổi học đã đóng</label>
                                         <input
@@ -348,7 +299,9 @@ export default function AddStudentPage() {
                                     </div>
 
                                     <div className={fgClass(requireAccount && (pwTooShort || !pw), requireAccount && !!pw && !pwTooShort)}>
-                                        <label htmlFor="Password">Mật khẩu {requireAccount ? <small>(bắt buộc khi có email)</small> : <small className="text-muted">(tùy chọn)</small>}</label>
+                                        <label htmlFor="Password">
+                                            Mật khẩu {requireAccount ? <small>(bắt buộc khi có email)</small> : <small className="text-muted">(tùy chọn)</small>}
+                                        </label>
                                         <input
                                             id="Password"
                                             className="form-control"
@@ -371,49 +324,95 @@ export default function AddStudentPage() {
                                             value={form.ConfirmPassword}
                                             onChange={(e) => setField("ConfirmPassword", e.target.value)}
                                             placeholder="Nhập lại mật khẩu"
-                                            disabled={!requireAccount && !cpw}
+                                            disabled={!requireAccount && !pw}
                                         />
-                                        {requireAccount && cpw && cpwMismatch && <p className="help-block">Xác nhận mật khẩu không khớp.</p>}
-                                        {requireAccount && cpw && !cpwMismatch && <p className="help-block text-green">Mật khẩu khớp.</p>}
-                                        {!requireAccount && cpw && cpwMismatch && <p className="help-block">Xác nhận mật khẩu không khớp.</p>}
-                                        {!requireAccount && cpw && !cpwMismatch && <p className="help-block text-green">Mật khẩu khớp.</p>}
+                                        {requireAccount && cpwMismatch && <p className="help-block">Xác nhận mật khẩu không khớp.</p>}
                                     </div>
 
-                                    {/* Buttons */}
-                                    <div className="form-group" style={{ marginTop: 20 }}>
-                                        <button type="submit" className="btn btn-primary" disabled={saving || formInvalid}>
-                                            {saving ? <i className="fa fa-spinner fa-spin" /> : <i className="fa fa-save" />}{" "}
-                                            Tạo mới
-                                        </button>{" "}
+                                    <div className="box-footer">
                                         <Link to="/students" className="btn btn-default">Hủy</Link>
+                                        <button type="submit" className="btn btn-primary pull-right" disabled={saving || formInvalid}>
+                                            {saving ? "Đang lưu..." : "Lưu học viên"}
+                                        </button>
                                     </div>
                                 </form>
                             </div>
+
                         </div>
                     </div>
                 </div>
             </section>
 
-            {/* Modal thông báo tạo tài khoản thành công */}
+            {/* ===== Modal “Tạo tài khoản thành công” — CĂN GIỮA MÀN HÌNH ===== */}
             {successInfo && (
-                <div className="modal fade in" style={{ display: "block", background: "rgba(0,0,0,0.5)" }}>
-                    <div className="modal-dialog" role="dialog">
-                        <div className="modal-content" role="document">
+                <div
+                    className="modal fade in"
+                    style={{
+                        display: "block",
+                        position: "fixed",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.5)",
+                        zIndex: 1050,
+                    }}
+                    role="dialog"
+                    aria-modal="true"
+                >
+                    <div
+                        className="modal-dialog"
+                        role="document"
+                        style={{
+                            margin: 0,
+                            position: "absolute",
+                            top: "50%",
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                            width: "520px",
+                            maxWidth: "92vw",
+                        }}
+                    >
+                        <div className="modal-content">
                             <div className="modal-header">
                                 <button type="button" className="close" onClick={() => setSuccessInfo(null)}>
-                                    <span>&times;</span>
+                                    <span aria-hidden="true">&times;</span>
                                 </button>
-                                <h4 className="modal-title">
+                                <h4 className="modal-title" style={{ fontWeight: 700 }}>
                                     <i className="fa fa-check-circle text-green" /> Tạo tài khoản thành công
                                 </h4>
                             </div>
                             <div className="modal-body" style={{ fontSize: 16 }}>
-                                <p>Đã tạo tài khoản đăng nhập cho học viên{successInfo.studentId ? <> <strong>#{successInfo.studentId}</strong></> : null}.</p>
-                                <p><strong>Tài khoản:</strong> <code style={{ fontSize: 16 }}>{successInfo.email || "(không xác định)"}</code></p>
-                                <p><strong>Mật khẩu:</strong> <code style={{ fontSize: 16 }}>{successInfo.tempPassword}</code></p>
-                                <p className="text-muted" style={{ marginTop: 10 }}>Vui lòng hướng dẫn học viên đổi mật khẩu sau khi đăng nhập lần đầu.</p>
+                                <p>
+                                    Đã tạo tài khoản đăng nhập cho học viên
+                                    {successInfo.studentId ? <> <strong>#{successInfo.studentId}</strong></> : null}.
+                                </p>
+
+                                <p>
+                                    <strong>Tài khoản:</strong>{" "}
+                                    <code style={{ fontSize: 16 }}>
+                                        {successInfo.email || "(không xác định)"}
+                                    </code>
+                                </p>
+
+                                {successInfo.tempPassword && (
+                                    <p>
+                                        <strong>Mật khẩu:</strong>{" "}
+                                        <code style={{ fontSize: 16 }}>{successInfo.tempPassword}</code>
+                                    </p>
+                                )}
+
+                                {!successInfo.tempPassword && (
+                                    <p className="text-muted" style={{ marginTop: 10 }}>
+                                        (Nếu không hiển thị mật khẩu, hệ thống có thể đã gửi email đặt lại mật khẩu cho học viên.)
+                                    </p>
+                                )}
+
+                                <p className="text-muted" style={{ marginTop: 10 }}>
+                                    Vui lòng hướng dẫn học viên đổi mật khẩu sau khi đăng nhập lần đầu.
+                                </p>
                             </div>
                             <div className="modal-footer">
+                                <button type="button" className="btn btn-default" onClick={() => setSuccessInfo(null)}>
+                                    Ở lại trang này
+                                </button>
                                 <button type="button" className="btn btn-primary" onClick={() => navigate("/students")}>
                                     Tiếp tục
                                 </button>
@@ -423,30 +422,8 @@ export default function AddStudentPage() {
                 </div>
             )}
 
-            {/* Toast lỗi nổi (giống trang Teacher) */}
-            {toast.msg && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={toast.hide}>
-                        <span>&times;</span>
-                    </button>
-                    {toast.msg}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(toast.remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(toast.remaining / AUTO_DISMISS) * 100}%`,
-                                transition: "width 100ms linear",
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* Toasts (dùng để hiển thị lỗi) */}
+            <Toasts />
         </>
     );
 }

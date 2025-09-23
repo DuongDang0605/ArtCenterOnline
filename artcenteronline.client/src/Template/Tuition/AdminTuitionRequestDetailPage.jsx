@@ -2,21 +2,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import http from "../../api/http";
-import { adminApproveTuitionRequest, adminGetTuitionRequest, adminRejectTuitionRequest } from "../../api/tuition";
+import {
+    adminApproveTuitionRequest,
+    adminGetTuitionRequest,
+    adminRejectTuitionRequest,
+} from "../../api/tuition";
 import ConfirmDialog from "../../component/ConfirmDialog";
-
-/** Gom message từ BE giống Schedule */
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra."
-    );
-}
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 function fmt(dt) {
     if (!dt) return "";
@@ -34,25 +27,8 @@ export default function AdminTuitionRequestDetailPage() {
     const [busy, setBusy] = useState(false);
     const [previewUrl, setPreviewUrl] = useState("");
 
-    // Toast lỗi
-    const AUTO_DISMISS = 5000;
-    const [err, setErr] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    function showError(msg) {
-        const t = String(msg || "");
-        setErr(t);
-        if (t) setRemaining(AUTO_DISMISS);
-    }
-    useEffect(() => {
-        if (!err) return;
-        const started = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - started));
-            setRemaining(left);
-            if (left === 0) setErr("");
-        }, 100);
-        return () => clearInterval(iv);
-    }, [err]);
+    // Hệ thống toast đồng bộ (giống AddClassPage / History)
+    const { showError, showSuccess, Toasts } = useToasts();
 
     async function load() {
         setLoading(true);
@@ -62,14 +38,17 @@ export default function AdminTuitionRequestDetailPage() {
 
             // tải ảnh (có Authorization) để xem inline
             try {
-                const res = await http.get(`/tuitionrequests/${id}/image`, { responseType: "blob" });
+                const res = await http.get(`/tuitionrequests/${id}/image`, {
+                    responseType: "blob",
+                });
                 const url = URL.createObjectURL(res.data);
                 setPreviewUrl(url);
             } catch (e) {
+                // chỉ log cảnh báo, không chặn trang
                 console.warn("Preview image failed", e);
             }
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Có lỗi xảy ra.");
         } finally {
             setLoading(false);
         }
@@ -77,21 +56,26 @@ export default function AdminTuitionRequestDetailPage() {
 
     useEffect(() => {
         load();
-        return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
-        // eslint-disable-next-line
+        return () => {
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     async function downloadOriginal() {
         try {
-            const res = await http.get(`/tuitionrequests/${item.id}/image`, { responseType: "blob" });
+            const res = await http.get(`/tuitionrequests/${item.id}/image`, {
+                responseType: "blob",
+            });
             const url = URL.createObjectURL(res.data);
             const a = document.createElement("a");
             a.href = url;
             a.download = `tuition_${item.id}`;
             a.click();
             URL.revokeObjectURL(url);
+            showSuccess("Đã tải ảnh gốc.");
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Không tải được ảnh gốc.");
         }
     }
 
@@ -112,10 +96,13 @@ export default function AdminTuitionRequestDetailPage() {
         setBusy(true);
         try {
             await adminApproveTuitionRequest(item.id, sessions);
-            // Điều hướng về Pending với toast success
-            navigate("/admin/tuition/pending", { state: { notice: `Đã duyệt và cộng ${sessions} buổi.` }, replace: true });
+            // Điều hướng về Pending với toast success tại trang đích
+            navigate("/admin/tuition/pending", {
+                state: { notice: `Đã duyệt và cộng ${sessions} buổi.` },
+                replace: true,
+            });
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Duyệt yêu cầu thất bại.");
         } finally {
             setBusy(false);
             setApproveOpen(false);
@@ -130,9 +117,12 @@ export default function AdminTuitionRequestDetailPage() {
         setBusy(true);
         try {
             await adminRejectTuitionRequest(item.id, reason || null);
-            navigate("/admin/tuition/pending", { state: { notice: "Đã từ chối yêu cầu." }, replace: true });
+            navigate("/admin/tuition/pending", {
+                state: { notice: "Đã từ chối yêu cầu." },
+                replace: true,
+            });
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Từ chối yêu cầu thất bại.");
         } finally {
             setBusy(false);
             setRejectOpen(false);
@@ -142,7 +132,10 @@ export default function AdminTuitionRequestDetailPage() {
     if (loading) {
         return (
             <>
-                <section className="content-header"><h1>Đang tải…</h1></section>
+                <section className="content-header">
+                    <h1>Đang tải…</h1>
+                </section>
+                <Toasts />
             </>
         );
     }
@@ -150,8 +143,15 @@ export default function AdminTuitionRequestDetailPage() {
     if (!item) {
         return (
             <>
-                <section className="content-header"><h1>Không tìm thấy yêu cầu</h1></section>
-                <section className="content"><Link to="/admin/tuition/pending" className="btn btn-default">Quay lại</Link></section>
+                <section className="content-header">
+                    <h1>Không tìm thấy yêu cầu</h1>
+                </section>
+                <section className="content">
+                    <Link to="/admin/tuition/pending" className="btn btn-default">
+                        Quay lại
+                    </Link>
+                </section>
+                <Toasts />
             </>
         );
     }
@@ -161,29 +161,49 @@ export default function AdminTuitionRequestDetailPage() {
     return (
         <>
             <section className="content-header">
-                <h1>Yêu cầu nộp học phí #{item.id} — {item.status}</h1>
+                <h1>
+                    Yêu cầu nộp học phí #{item.id} — {item.status}
+                </h1>
             </section>
 
             <section className="content">
                 <div className="row">
                     <div className="col-md-7">
                         <div className="box">
-                            <div className="box-header with-border"><h3 className="box-title">Thông tin yêu cầu</h3></div>
+                            <div className="box-header with-border">
+                                <h3 className="box-title">Thông tin yêu cầu</h3>
+                            </div>
                             <div className="box-body">
-                                <p><b>Học viên:</b> {item.studentName} (ID: {item.studentId})</p>
-                                <p><b>Email:</b> {item.email}</p>
-                                <p><b>Ngày gửi:</b> {fmt(item.createdAtUtc)}</p>
-                                <p><b>Ngày xử lý:</b> {fmt(item.reviewedAtUtc)}</p>
-                                {item.rejectReason && <p><b>Lý do từ chối:</b> {item.rejectReason}</p>}
+                                <p>
+                                    <b>Học viên:</b> {item.studentName} (ID: {item.studentId})
+                                </p>
+                                <p>
+                                    <b>Email:</b> {item.email}
+                                </p>
+                                <p>
+                                    <b>Ngày gửi:</b> {fmt(item.createdAtUtc)}
+                                </p>
+                                <p>
+                                    <b>Ngày xử lý:</b> {fmt(item.reviewedAtUtc)}
+                                </p>
+                                {item.rejectReason && (
+                                    <p>
+                                        <b>Lý do từ chối:</b> {item.rejectReason}
+                                    </p>
+                                )}
                             </div>
                             <div className="box-footer">
-                                <Link to="/admin/tuition/pending" className="btn btn-default">Quay lại</Link>
+                                <Link to="/admin/tuition/pending" className="btn btn-default">
+                                    Quay lại
+                                </Link>
                             </div>
                         </div>
 
                         {isPending && (
                             <div className="box">
-                                <div className="box-header with-border"><h3 className="box-title">Duyệt yêu cầu</h3></div>
+                                <div className="box-header with-border">
+                                    <h3 className="box-title">Duyệt yêu cầu</h3>
+                                </div>
                                 <div className="box-body">
                                     <div className="row">
                                         <div className="col-sm-6">
@@ -195,10 +215,16 @@ export default function AdminTuitionRequestDetailPage() {
                                                     min={1}
                                                     max={200}
                                                     value={sessions}
-                                                    onChange={(e) => setSessions(parseInt(e.target.value || "0", 10))}
+                                                    onChange={(e) =>
+                                                        setSessions(parseInt(e.target.value || "0", 10))
+                                                    }
                                                 />
                                             </div>
-                                            <button className="btn btn-success" disabled={busy} onClick={askApprove}>
+                                            <button
+                                                className="btn btn-success"
+                                                disabled={busy}
+                                                onClick={askApprove}
+                                            >
                                                 <i className="fa fa-check" /> Đồng ý
                                             </button>
                                         </div>
@@ -213,7 +239,11 @@ export default function AdminTuitionRequestDetailPage() {
                                                     onChange={(e) => setReason(e.target.value)}
                                                 />
                                             </div>
-                                            <button className="btn btn-danger" disabled={busy} onClick={askReject}>
+                                            <button
+                                                className="btn btn-danger"
+                                                disabled={busy}
+                                                onClick={askReject}
+                                            >
                                                 <i className="fa fa-times" /> Từ chối
                                             </button>
                                         </div>
@@ -225,7 +255,9 @@ export default function AdminTuitionRequestDetailPage() {
 
                     <div className="col-md-5">
                         <div className="box">
-                            <div className="box-header with-border"><h3 className="box-title">Ảnh minh chứng</h3></div>
+                            <div className="box-header with-border">
+                                <h3 className="box-title">Ảnh minh chứng</h3>
+                            </div>
                             <div className="box-body">
                                 {previewUrl ? (
                                     <>
@@ -233,7 +265,11 @@ export default function AdminTuitionRequestDetailPage() {
                                             <img
                                                 src={previewUrl}
                                                 alt="tuition-proof"
-                                                style={{ maxWidth: "100%", borderRadius: 6, border: "1px solid #ddd" }}
+                                                style={{
+                                                    maxWidth: "100%",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #ddd",
+                                                }}
                                             />
                                         </div>
                                         <button className="btn btn-default" onClick={downloadOriginal}>
@@ -249,20 +285,8 @@ export default function AdminTuitionRequestDetailPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi (nếu có) */}
-            {err && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => setErr("")}><span aria-hidden="true">&times;</span></button>
-                    {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Tự ẩn sau {(remaining / 1000).toFixed(1)}s</div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div style={{ height: "100%", width: `${(remaining / AUTO_DISMISS) * 100}%`, background: "#a94442", transition: "width 100ms linear" }} />
-                    </div>
-                </div>
-            )}
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
 
             {/* Modal xác nhận DUYỆT */}
             <ConfirmDialog
@@ -283,7 +307,9 @@ export default function AdminTuitionRequestDetailPage() {
                 type="danger"
                 title="Xác nhận từ chối"
                 message="Bạn có chắc chắn muốn từ chối yêu cầu này?"
-                details={reason ? `Lý do: ${reason}` : "Bạn có thể bổ sung lý do trước khi xác nhận."}
+                details={
+                    reason ? `Lý do: ${reason}` : "Bạn có thể bổ sung lý do trước khi xác nhận."
+                }
                 confirmText="Từ chối"
                 cancelText="Quay lại"
                 onCancel={() => setRejectOpen(false)}

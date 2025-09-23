@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { updateStudent, getStudent } from "./students.js";
+import ConfirmDialog from "../../component/ConfirmDialog";
+import extractErr from "../../utils/extractErr";
+import { useToasts } from "../../hooks/useToasts";
 
 // ===== Helpers =====
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -32,18 +35,6 @@ function anyToISO(v) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function extractErr(e) {
-    const r = e?.response;
-    return (
-        r?.data?.message ||
-        r?.data?.detail ||
-        r?.data?.title ||
-        (typeof r?.data === "string" ? r.data : null) ||
-        e?.message ||
-        "Có lỗi xảy ra khi lưu."
-    );
-}
-
 export default function EditStudentPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -66,24 +57,11 @@ export default function EditStudentPage() {
     // Text hiển thị dd/MM/yyyy
     const [ngayBatDauHocText, setNgayBatDauHocText] = useState("");
 
-    // ==== Toast lỗi: đếm ngược 5s + progress ====
-    const AUTO_DISMISS = 5000;
-    const [err, setErr] = useState("");
-    const [remaining, setRemaining] = useState(0);
-    function showError(msg) {
-        setErr(msg || "");
-        if (msg) setRemaining(AUTO_DISMISS);
-    }
-    useEffect(() => {
-        if (!err) return;
-        const startedAt = Date.now();
-        const iv = setInterval(() => {
-            const left = Math.max(0, AUTO_DISMISS - (Date.now() - startedAt));
-            setRemaining(left);
-            if (left === 0) setErr("");
-        }, 1000);
-        return () => clearInterval(iv);
-    }, [err]);
+    // Toasts đồng bộ như AddClassPage
+    const { showError, showSuccess, Toasts } = useToasts();
+
+    // Modal xác nhận (đồng bộ ConfirmDialog)
+    const [confirmOpen, setConfirmOpen] = useState(false);
 
     useEffect(() => {
         let ignore = false;
@@ -91,8 +69,8 @@ export default function EditStudentPage() {
             try {
                 const data = await getStudent(id);
                 if (!data) throw new Error("Không tìm thấy học viên.");
-                if (ignore) return;
 
+                if (ignore) return;
                 const pick = (obj, pascal, camel, def = "") =>
                     obj?.[pascal] ?? obj?.[camel] ?? def;
 
@@ -110,17 +88,17 @@ export default function EditStudentPage() {
                 });
                 setNgayBatDauHocText(isoToDMY(iso));
             } catch (e) {
-                showError(e.message || "Không tải được dữ liệu học viên.");
+                showError(e?.message || "Không tải được dữ liệu học viên.");
             } finally {
                 setLoading(false);
             }
         })();
         return () => { ignore = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     function setField(name, value) {
         setForm((f) => ({ ...f, [name]: value }));
-        if (err) showError(""); // chỉnh gì cũng clear lỗi
     }
 
     function validate() {
@@ -128,23 +106,34 @@ export default function EditStudentPage() {
         if (!form.ngayBatDauHoc) return "Vui lòng nhập Ngày bắt đầu học (dd/mm/yyyy).";
         if (form.SoBuoiHocConLai < 0) return "Số buổi học đã đóng không hợp lệ.";
         if (form.SoBuoiHocDaHoc < 0) return "Số buổi đã học không hợp lệ.";
-        if (form.PhoneNumber.length > 10) return "Số điện thoại không hợp lệ";
+        if (form.PhoneNumber && form.PhoneNumber.length > 10) return "Số điện thoại không hợp lệ";
         return "";
     }
 
-    async function onSubmit(e) {
+    // Nhấn Lưu -> mở confirm giống AddClassPage
+    function onSubmit(e) {
         e.preventDefault();
         const v = validate();
-        if (v) return showError(v);
+        if (v) { showError(v); return; }
+        setConfirmOpen(true);
+    }
+
+    async function doUpdate() {
+        const v = validate();
+        if (v) { showError(v); return; }
 
         setSaving(true);
         try {
             await updateStudent(id, { ...form, ngayBatDauHoc: form.ngayBatDauHoc });
+            // Điều hướng và để trang đích hiển thị success (pattern giống AddClassPage)
             navigate("/students", { state: { notice: "Đã cập nhật học viên." } });
+            // Nếu muốn hiện tại trang này cũng báo, có thể bật dòng dưới:
+            // showSuccess("Đã cập nhật học viên.");
         } catch (e) {
-            showError(extractErr(e));
+            showError(extractErr(e) || "Có lỗi xảy ra khi lưu.");
         } finally {
             setSaving(false);
+            setConfirmOpen(false);
         }
     }
 
@@ -154,28 +143,7 @@ export default function EditStudentPage() {
                 <section className="content">
                     <div className="box"><div className="box-body">Đang tải…</div></div>
                 </section>
-                {err && (
-                    <div
-                        className="alert alert-danger"
-                        style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                    >
-                        <button type="button" className="close" onClick={() => showError("")}><span aria-hidden="true">&times;</span></button>
-                        {err}
-                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                            Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                        </div>
-                        <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                            <div
-                                style={{
-                                    height: "100%",
-                                    width: `${(remaining / AUTO_DISMISS) * 100}%`,
-                                    background: "#a94442",
-                                    transition: "width 100ms linear"
-                                }}
-                            />
-                        </div>
-                    </div>
-                )}
+                <Toasts />
             </>
         );
     }
@@ -322,31 +290,22 @@ export default function EditStudentPage() {
                 </div>
             </section>
 
-            {/* Toast lỗi nổi (đếm ngược + progress) */}
-            {err && (
-                <div
-                    className="alert alert-danger"
-                    style={{ position: "fixed", top: 70, right: 16, zIndex: 9999, maxWidth: 420, boxShadow: "0 4px 12px rgba(0,0,0,.15)" }}
-                >
-                    <button type="button" className="close" onClick={() => showError("")} aria-label="Close" style={{ marginLeft: 8 }}>
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                    {err}
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                        Tự ẩn sau {(remaining / 1000).toFixed(1)}s
-                    </div>
-                    <div style={{ height: 3, background: "rgba(0,0,0,.08)", marginTop: 6 }}>
-                        <div
-                            style={{
-                                height: "100%",
-                                width: `${(remaining / AUTO_DISMISS) * 100}%`,
-                                background: "#a94442",
-                                transition: "width 100ms linear"
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
+            {/* Modal xác nhận ở giữa màn hình, tiêu đề in đậm */}
+            <ConfirmDialog
+                open={confirmOpen}
+                type="primary"
+                title="Xác nhận cập nhật học viên"
+                message={`Lưu thay đổi cho "${form.StudentName?.trim() || "(chưa nhập tên)"}"?`}
+                details="Bạn có thể chỉnh sửa lại sau nếu cần."
+                confirmText="Lưu thay đổi"
+                cancelText="Xem lại"
+                onCancel={() => setConfirmOpen(false)}
+                onConfirm={doUpdate}
+                busy={saving}
+            />
+
+            {/* Toasts dùng chung (success + error) */}
+            <Toasts />
         </>
     );
 }

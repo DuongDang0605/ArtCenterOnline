@@ -408,6 +408,7 @@ public class StudentsController : ControllerBase
         public string? Adress { get; set; }
         public string? ngayBatDauHoc { get; set; } // ISO yyyy-MM-dd
         public int SoBuoiHocDaHoc { get; set; }
+        public int SoBuoiHocConLai { get; set; }
         public int Status { get; set; } = 1;
         public string? Email { get; set; }           // optional
         public string? Password { get; set; }        // required if Email present (>=6)
@@ -445,6 +446,7 @@ public class StudentsController : ControllerBase
         ["Adress"] = new[] { "Adress", "Địa chỉ", "Dia chi", "Address" },
         ["ngayBatDauHoc"] = new[] { "ngayBatDauHoc", "Ngày nhập học", "Ngay nhap hoc", "Ngày bắt đầu học", "Ngay bat dau hoc" },
         ["SoBuoiHocDaHoc"] = new[] { "SoBuoiHocDaHoc", "Số buổi đã học", "So buoi da hoc" },
+        ["SoBuoiHocConLai"] = new[] {"SoBuoiHocConLai", "Số buổi đã đóng", "So buoi da dong"},
         ["Status"] = new[] { "Status", "Trạng thái", "Trang thai" },
         ["Email"] = new[] { "Email" },
         ["Password"] = new[] { "Password", "Mật khẩu", "Mat khau" },
@@ -555,6 +557,7 @@ public class StudentsController : ControllerBase
                     PhoneNumber = string.IsNullOrWhiteSpace(GetColValue(r, table, "PhoneNumber")) ? null : GetColValue(r, table, "PhoneNumber").Trim(),
                     Adress = string.IsNullOrWhiteSpace(GetColValue(r, table, "Adress")) ? null : GetColValue(r, table, "Adress").Trim(),
                     SoBuoiHocDaHoc = int.TryParse(GetColValue(r, table, "SoBuoiHocDaHoc"), out var sbdh) ? Math.Max(0, sbdh) : 0,
+                    SoBuoiHocConLai = int.TryParse(GetColValue(r,table,"SoBuoiHocConLai"), out var sbdd) ? Math.Max(0, sbdd) :0,
                     Status = int.TryParse(GetColValue(r, table, "Status"), out var st) ? (st == 1 ? 1 : 0) : 1,
                     Email = string.IsNullOrWhiteSpace(GetColValue(r, table, "Email")) ? null : GetColValue(r, table, "Email").Trim(),
                     Password = string.IsNullOrWhiteSpace(GetColValue(r, table, "Password")) ? null : GetColValue(r, table, "Password"),
@@ -747,6 +750,7 @@ public class StudentsController : ControllerBase
                         Adress = r.Adress,
                         ngayBatDauHoc = startDate,
                         SoBuoiHocDaHoc = r.SoBuoiHocDaHoc,
+                        SoBuoiHocConLai = r.SoBuoiHocConLai,
                         Status = r.Status,
                         UserId = user.UserId
                     };
@@ -806,9 +810,10 @@ public class StudentsController : ControllerBase
         ws.Cell(1, 4).Value = "Địa chỉ";
         ws.Cell(1, 5).Value = "Ngày nhập học";   // dd/MM/yyyy
         ws.Cell(1, 6).Value = "Số buổi đã học";
-        ws.Cell(1, 7).Value = "Trạng thái";      // 0/1
-        ws.Cell(1, 8).Value = "Email";
-        ws.Cell(1, 9).Value = "Password";        // >=6 nếu có Email
+        ws.Cell(1, 7).Value = "Số buổi đã đóng";
+        ws.Cell(1, 8).Value = "Trạng thái";      // 0/1
+        ws.Cell(1, 9).Value = "Email";
+        ws.Cell(1, 10).Value = "Password";        // >=6 nếu có Email
 
         // Ví dụ 1–2 dòng mẫu
         ws.Cell(2, 1).Value = "Nguyen Van A";
@@ -817,7 +822,8 @@ public class StudentsController : ControllerBase
         ws.Cell(2, 4).Value = "123 Duong ABC";
         ws.Cell(2, 5).Value = "01/10/2025"; // dd/MM/yyyy
         ws.Cell(2, 6).Value = 0;
-        ws.Cell(2, 7).Value = 1;
+        ws.Cell(2, 7).Value = 3;
+        ws.Cell(2, 8).Value = 1;
 
         ws.Cell(3, 1).Value = "Tran Thi C";
         ws.Cell(3, 2).Value = "Tran Van D";
@@ -825,9 +831,10 @@ public class StudentsController : ControllerBase
         ws.Cell(3, 4).Value = "45 Pho XYZ";
         ws.Cell(3, 5).Value = "15/10/2025";
         ws.Cell(3, 6).Value = 2;
-        ws.Cell(3, 7).Value = 1;
-        ws.Cell(3, 8).Value = "user@example.com";
-        ws.Cell(3, 9).Value = "abc123";
+        ws.Cell(3, 7).Value = 3;
+        ws.Cell(2, 8).Value = 1;
+        ws.Cell(3, 9).Value = "user@example.com";
+        ws.Cell(3, 10).Value = "abc123";
 
         // Format cơ bản
         ws.Columns().AdjustToContents();
