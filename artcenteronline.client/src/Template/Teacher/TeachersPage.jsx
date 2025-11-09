@@ -9,8 +9,17 @@ import extractErr from "../../utils/extractErr";
 import { useToasts } from "../../hooks/useToasts";
 
 export default function TeachersPage() {
-    const { roles = [] } = useAuth();
+    // Lấy roles + teacherId giống SessionsPage
+    const auth = useAuth();
+    const roles = Array.isArray(auth?.roles) ? auth.roles : [];
     const isAdmin = roles.includes("Admin");
+    const isTeacher = roles.includes("Teacher");
+    const myTeacherId =
+        auth?.user?.teacherId ??
+        auth?.user?.TeacherId ??
+        auth?.user?.teacher?.teacherId ??
+        auth?.user?.teacher?.TeacherId ?? "";
+
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -65,7 +74,15 @@ export default function TeachersPage() {
                 const data = await getTeachers();
                 if (!alive) return;
                 const normalized = (Array.isArray(data) ? data : []).map((x, i) => normalizeItem(x, i));
-                setRows(normalized);
+
+                // Nếu là giáo viên: chỉ cho xem đúng bản ghi của chính mình
+                if (isTeacher) {
+                    const mineId = String(myTeacherId || "");
+                    const onlyMe = normalized.filter(r => String(r.id) === mineId);
+                    setRows(onlyMe);
+                } else {
+                    setRows(normalized);
+                }
             } catch (e) {
                 showError(extractErr(e) || "Không tải được danh sách giáo viên.");
             } finally {
@@ -74,8 +91,7 @@ export default function TeachersPage() {
         })();
         return () => { alive = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
+    }, [isTeacher, myTeacherId]);
     // Init DataTable
     useEffect(() => {
         if (loading) return;
@@ -139,7 +155,11 @@ export default function TeachersPage() {
     return (
         <>
             <section className="content-header">
-                <h1>Danh sách giáo viên</h1>
+                <h1>
+                    {isTeacher
+                        ? "Thông tin giáo viên (của tôi)"
+                        : "Danh sách giáo viên"}
+                </h1>
                 <ol className="breadcrumb">
                     <li><a href="#"><i className="fa fa-dashboard" /> Trang chủ</a></li>
                     <li className="active">Giáo viên</li>
@@ -168,9 +188,9 @@ export default function TeachersPage() {
                                             <th>ID</th>
                                             <th>User Email</th>
                                             <th>Tên giáo viên</th>
-                                            <th>Số điện thoại</th>
                                             <th>Buổi trong tháng</th>
                                             <th>Trạng thái</th>
+                                            <th>Ghi chú</th>
                                             <th>Hành động</th>
                                         </tr>
                                     </thead>
@@ -181,13 +201,13 @@ export default function TeachersPage() {
                                                 <td>{r.id}</td>
                                                 <td>{r.email}</td>
                                                 <td>{r.name}</td>
-                                                <td>{r.phone}</td>
                                                 <td>{r.sessionsPerMonth}</td>
                                                 <td>
                                                     <span className={"label " + (r.statusNum === 1 ? "label-success" : "label-default")}>
                                                         {r.statusNum === 1 ? "Đang dạy" : "Ngừng dạy"}
                                                     </span>
                                                 </td>
+                                                <td>{r.phone}</td>
                                                 <td>
                                                     {isAdmin ? (
                                                         <>
@@ -205,6 +225,7 @@ export default function TeachersPage() {
                                                     ) : (
                                                         <span className="text-muted">—</span>
                                                     )}
+                                                   
                                                 </td>
                                             </tr>
                                         ))}
