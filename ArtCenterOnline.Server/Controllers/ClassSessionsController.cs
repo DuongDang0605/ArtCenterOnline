@@ -183,14 +183,16 @@ namespace ArtCenterOnline.Server.Controllers
 
             // canEdit theo vai trò
             var now = DateTime.Now;
-            var today = DateOnly.FromDateTime(now);
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var threeDaysAgo = today.AddDays(-7);
+
             var endOfMonth = DateOnly.FromDateTime(new DateTime(now.Year, now.Month, DateTime.DaysInMonth(now.Year, now.Month)));
 
             bool canEdit;
             if (User.IsInRole("Admin"))
             {
                 // Admin: cho sửa nếu ngày buổi trong [hôm nay .. hết tháng]
-                canEdit = s.SessionDate >= today && s.SessionDate <= endOfMonth;
+                canEdit = s.SessionDate >= threeDaysAgo && s.SessionDate <= endOfMonth;
             }
             else
             {
@@ -240,13 +242,14 @@ namespace ArtCenterOnline.Server.Controllers
 
             // Role-based edit window
             var now = DateTime.Now;
-            var today = DateOnly.FromDateTime(now);
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var threeDaysAgo = today.AddDays(-7);
             var endOfMonth = DateOnly.FromDateTime(new DateTime(now.Year, now.Month, DateTime.DaysInMonth(now.Year, now.Month)));
 
             if (User.IsInRole("Admin"))
             {
                 // Admin: chỉ cho sửa ngày trong [hôm nay .. hết tháng]
-                if (newDate < today || newDate > endOfMonth)
+                if (newDate < threeDaysAgo || newDate > endOfMonth)
                     return Conflict(new { message = "Admin chỉ được sửa buổi từ hôm nay đến hết tháng hiện tại." });
             }
             else

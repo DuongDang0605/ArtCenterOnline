@@ -216,12 +216,12 @@ export default function StudentsPage() {
                                             <th>User Email</th>
                                             <th>Tên học viên</th>
                                             <th>Tên phụ huynh</th>
-                                            <th>Số điện thoại</th>
-                                            <th>Địa chỉ</th>
+                                            <th>Số điện thoại</th>                       
                                             <th>Ngày nhập học</th>
                                             <th>Số buổi đã học</th>
                                             <th>Số buổi đã đóng</th>
                                             <th>Trạng thái</th>
+                                            <th>Ghi chú</th>
                                             <th>Hành động</th>
                                         </tr>
                                     </thead>
@@ -234,7 +234,7 @@ export default function StudentsPage() {
                                                 <td>{r.name}</td>
                                                 <td>{r.parent}</td>
                                                 <td>{r.phone}</td>
-                                                <td>{r.address}</td>
+                                                
                                                 <td>{r.startDate}</td>
                                                 <td>{r.learned}</td>
                                                 <td>{r.remaining}</td>
@@ -243,6 +243,7 @@ export default function StudentsPage() {
                                                         {r.statusNum === 1 ? "Đang học" : "Ngừng học"}
                                                     </span>
                                                 </td>
+                                                <td>{r.address}</td>
                                                 <td>
                                                     {isAdmin ? (
                                                         <>

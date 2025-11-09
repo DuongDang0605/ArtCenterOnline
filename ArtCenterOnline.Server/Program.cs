@@ -56,7 +56,8 @@ builder.Services.AddScoped<ArtCenterOnline.Server.Services.ITeacherScheduleValid
 builder.Services.AddScoped<IStudentScheduleValidator, StudentScheduleValidator>();
 
 builder.Services.Configure<AutoAbsentOptions>(builder.Configuration.GetSection("AutoAbsent"));
-builder.Services.AddHostedService<SessionAutoAbsentService>();
+//Tạm tắt dịch vụ tự động chấm vắng 
+//builder.Services.AddHostedService<SessionAutoAbsentService>();
 builder.Services.AddScoped<ArtCenterOnline.Server.Services.IStudentLifecycleService,
                            ArtCenterOnline.Server.Services.StudentLifecycleService>();
 

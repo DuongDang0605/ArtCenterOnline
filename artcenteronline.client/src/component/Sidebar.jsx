@@ -147,68 +147,71 @@ export default function Sidebar() {
                             </li>
 
                             {/* Quản lý học viên */}
+                            {isAdmin && (
+                                <li className="treeview">
+                                    <a href="#">
+                                        <i className="fa fa-graduation-cap" /> <span>Quản lý học viên</span>
+                                        <span className="pull-right-container">
+                                            <i className="fa fa-angle-left pull-right" />
+                                        </span>
+                                    </a>
+                                    <ul className="treeview-menu">
+                                        <li>
+                                            <Link to="/students">
+                                                <i className="fa fa-circle-o" /> Danh sách học viên
+                                            </Link>
+                                        </li>
+                                        {/* Lịch theo học viên: chỉ Admin & Teacher */}
+                                        <li>
+                                            <Link to="/calendar/student">
+                                                <i className="fa fa-circle-o" /> Lịch theo học viên
+                                            </Link>
+                                        </li>
+
+                                        <li>
+                                            <Link to="/students/new">
+                                                <i className="fa fa-circle-o" /> Thêm học viên mới
+                                            </Link>
+                                        </li>
+
+
+                                        <li>
+                                            <Link to="/students/import-excel">
+                                                <i className="fa fa-circle-o" /> Thêm học viên (Excel)
+                                            </Link>
+                                        </li>
+
+                                    </ul>
+                                </li>)}
+
+                            {/* Nhóm Admin-only */}
+
+                            <li className="header">QUẢN TRỊ </li>
+
                             <li className="treeview">
                                 <a href="#">
-                                    <i className="fa fa-graduation-cap" /> <span>Quản lý học viên</span>
+                                    <i className="fa fa-user" /> <span>Giáo viên</span>
                                     <span className="pull-right-container">
                                         <i className="fa fa-angle-left pull-right" />
                                     </span>
                                 </a>
                                 <ul className="treeview-menu">
                                     <li>
-                                        <Link to="/students">
-                                            <i className="fa fa-circle-o" /> Danh sách học viên
-                                        </Link>
-                                    </li>
-                                    {/* Lịch theo học viên: chỉ Admin & Teacher */}
-                                    <li>
-                                        <Link to="/calendar/student">
-                                            <i className="fa fa-circle-o" /> Lịch theo học viên
+                                        <Link to="/teachers">
+                                            <i className="fa fa-circle-o" /> Danh sách giáo viên
                                         </Link>
                                     </li>
                                     {isAdmin && (
                                         <li>
-                                            <Link to="/students/new">
-                                                <i className="fa fa-circle-o" /> Thêm học viên mới
+                                            <Link to="/teachers/add">
+                                                <i className="fa fa-circle-o" /> Thêm giáo viên
                                             </Link>
-                                        </li>
-                                    )}
-                                    {isAdmin && (
-                                        <li>
-                                            <Link to="/students/import-excel">
-                                                <i className="fa fa-circle-o" /> Thêm học viên (Excel)
-                                            </Link>
-                                        </li>
-                                    )}
-                                </ul>
+                                        </li>)}
+                                        </ul>
                             </li>
 
-                            {/* Nhóm Admin-only */}
                             {isAdmin && (
                                 <>
-                                    <li className="header">QUẢN TRỊ </li>
-
-                                    <li className="treeview">
-                                        <a href="#">
-                                            <i className="fa fa-user" /> <span>Giáo viên</span>
-                                            <span className="pull-right-container">
-                                                <i className="fa fa-angle-left pull-right" />
-                                            </span>
-                                        </a>
-                                        <ul className="treeview-menu">
-                                            <li>
-                                                <Link to="/teachers">
-                                                    <i className="fa fa-circle-o" /> Danh sách giáo viên
-                                                </Link>
-                                            </li>
-                                            <li>
-                                                <Link to="/teachers/add">
-                                                    <i className="fa fa-circle-o" /> Thêm giáo viên
-                                                </Link>
-                                            </li>
-                                        </ul>
-                                    </li>
-
                                     <li className="treeview">
                                         <a href="#">
                                             <i className="fa fa-users" /> <span>Người dùng</span>
@@ -270,9 +273,10 @@ export default function Sidebar() {
                                                 </Link>
                                             </li>
                                         </ul>
-                                    </li>                                   
+                                    </li>
                                 </>
                             )}
+
                         </>
                     )}
 
